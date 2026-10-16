@@ -100,6 +100,8 @@ CREATE TABLE IF NOT EXISTS heartbeats (
   UNIQUE (user_id, time, editor, project, entity)
 );
 CREATE INDEX IF NOT EXISTS heartbeats_user_day ON heartbeats(user_id, local_date, time);
+-- For the rolling 24-hour leaderboard, which reads recent heartbeats across all users.
+CREATE INDEX IF NOT EXISTS heartbeats_time ON heartbeats(time);
 
 CREATE TABLE IF NOT EXISTS projects (
   user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

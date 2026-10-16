@@ -3,6 +3,7 @@ import { CaretDown, CaretUp } from "@phosphor-icons/react/ssr";
 import type { LeaderRow } from "@/lib/stats.ts";
 import { formatDuration } from "@/lib/time.ts";
 import { Avatar } from "./ui.tsx";
+import { GitHubMark, XMark } from "./BrandIcons.tsx";
 
 /** Ranked rows shared by the leaderboard page and the dashboard. `max` is the #1 time, for the bars. */
 /** ▲/▼ versus the previous period, "New" for first-timers. */
@@ -40,13 +41,10 @@ export function LeaderRows({
         return (
           <li
             key={r.user_id}
-            className={`rise border-line [&:not(:first-child)]:border-t ${mine ? "bg-accent-soft" : ""} ${gapBefore === r.rank ? "!border-t-2 border-dashed" : ""}`}
+            className={`rise relative border-line transition-colors hover:bg-surface-2 [&:not(:first-child)]:border-t ${mine ? "bg-accent-soft" : ""} ${gapBefore === r.rank ? "!border-t-2 border-dashed" : ""}`}
             style={{ ["--d" as string]: Math.min(i, 12) }}
           >
-            <Link
-              href={`/u/${r.username}`}
-              className="grid grid-cols-[2.5rem_1fr_auto] items-center gap-3 px-4 py-3.5 transition hover:bg-surface-2 sm:grid-cols-[3rem_1fr_9rem_7rem] sm:px-6"
-            >
+            <div className="grid grid-cols-[2.5rem_1fr_auto] items-center gap-3 px-4 py-3.5 sm:grid-cols-[3rem_1fr_9rem_7rem] sm:px-6">
               <span className="flex flex-col items-start leading-none">
                 <span className={`num text-lg font-semibold ${r.rank <= 3 ? "text-accent-text" : "text-faint"}`}>{r.rank}</span>
                 {prevRanks && <span className="mt-1"><Movement now={r.rank} before={prevRanks.get(r.user_id)} /></span>}
@@ -54,9 +52,24 @@ export function LeaderRows({
               <span className="flex min-w-0 items-center gap-3">
                 <Avatar name={r.display_name} src={r.avatar_url} size={36} />
                 <span className="min-w-0">
-                  <span className="block truncate font-medium">
-                    {r.display_name}
-                    {mine && <span className="ml-2 text-xs font-semibold text-accent-text">You</span>}
+                  <span className="flex min-w-0 items-center gap-2">
+                    {/* Stretched link: the whole row opens the profile; the icon links sit above it. */}
+                    <Link href={`/u/${r.username}`} className="truncate font-medium after:absolute after:inset-0">
+                      {r.display_name}
+                    </Link>
+                    {mine && <span className="text-xs font-semibold text-accent-text">You</span>}
+                    <span className="relative z-[1] flex shrink-0 items-center gap-1 text-faint">
+                      {r.github && (
+                        <a href={`https://github.com/${r.github}`} target="_blank" rel="noopener noreferrer nofollow" aria-label={`${r.display_name} on GitHub`} className="rounded-md p-1 transition-colors hover:bg-surface hover:text-text">
+                          <GitHubMark size={14} />
+                        </a>
+                      )}
+                      {r.twitter && (
+                        <a href={`https://x.com/${r.twitter}`} target="_blank" rel="noopener noreferrer nofollow" aria-label={`${r.display_name} on X`} className="rounded-md p-1 transition-colors hover:bg-surface hover:text-text">
+                          <XMark size={12} />
+                        </a>
+                      )}
+                    </span>
                   </span>
                   <span className="block truncate text-sm text-muted">
                     @{r.username}
@@ -69,7 +82,7 @@ export function LeaderRows({
                 <span className="mt-1.5 block h-1 rounded-full bg-accent" style={{ width: `${Math.max(4, (r.seconds / max) * 100)}%`, opacity: 0.35 + 0.65 * (r.seconds / max) }} />
               </span>
               <span className="num text-right font-semibold">{formatDuration(r.seconds)}</span>
-            </Link>
+            </div>
           </li>
         );
       })}

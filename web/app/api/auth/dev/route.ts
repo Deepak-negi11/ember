@@ -10,5 +10,5 @@ export async function GET(req: Request) {
   const user = await userByUsername(url.searchParams.get("u") ?? "");
   if (!user) return NextResponse.redirect(new URL("/login?error=dev_unknown", url.origin));
   await createSession(user.id);
-  return NextResponse.redirect(new URL("/dashboard", url.origin));
+  return NextResponse.redirect(new URL("/leaderboard", url.origin));
 }

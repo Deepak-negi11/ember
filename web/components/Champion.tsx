@@ -3,6 +3,7 @@ import { ArrowUpRight, Crown, XLogo } from "@phosphor-icons/react/ssr";
 import type { LeaderRow } from "@/lib/stats.ts";
 import { formatDuration } from "@/lib/time.ts";
 import { Avatar } from "./ui.tsx";
+import { GitHubMark } from "./BrandIcons.tsx";
 
 const RAMP = ["var(--h4)", "var(--h3)", "var(--h2)", "var(--h1)"];
 
@@ -42,6 +43,17 @@ export function Champion({ row, period }: { row: LeaderRow; period: string }) {
                 <span className="block text-sm text-muted">{row.location || `@${row.username}`}</span>
               </span>
             </Link>
+            {row.github && (
+              <a
+                href={`https://github.com/${row.github}`}
+                target="_blank"
+                rel="noopener noreferrer nofollow"
+                className="inline-flex items-center gap-2 rounded-xl border border-line-strong px-4 py-2.5 text-sm font-semibold transition-[background-color,transform] hover:bg-surface-2 active:scale-[0.98]"
+                aria-label={`${row.display_name} on GitHub (opens github.com)`}
+              >
+                <GitHubMark size={16} /> {row.github}
+              </a>
+            )}
             {row.twitter && (
               <a
                 href={`https://x.com/${row.twitter}`}

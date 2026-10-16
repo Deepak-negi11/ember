@@ -38,7 +38,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ provider
     const tz = jar.get("ember_tz")?.value ?? "UTC";
     const { userId, created } = await signInWithProfile(profile, isValidTimeZone(tz) ? tz : "UTC");
     await createSession(userId);
-    return NextResponse.redirect(new URL(created ? "/settings?welcome=1#api-key" : "/dashboard", url.origin));
+    return NextResponse.redirect(new URL(created ? "/leaderboard?welcome=1" : "/leaderboard", url.origin));
   } catch (err) {
     console.error(`[auth] ${provider} sign-in failed:`, err instanceof Error ? err.message : err);
     return fail("oauth_failed");

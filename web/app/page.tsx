@@ -1,15 +1,12 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { ArrowRight, Fire } from "@phosphor-icons/react/ssr";
-import { publicOrigin } from "@/lib/origin.ts";
-import { currentUser, userByUsername } from "@/lib/auth.ts";
-import { breakdown, dailySeries, leaderboard, siteTotals, summary, todayFor } from "@/lib/stats.ts";
+import { currentUser } from "@/lib/auth.ts";
+import { siteTotals, todayFor } from "@/lib/stats.ts";
 import { addDays, formatDuration } from "@/lib/time.ts";
-import type { HeatCell } from "@/components/Heatmap.tsx";
-import { LivePreview } from "@/components/LivePreview.tsx";
+import { Heatmap, type HeatCell } from "@/components/Heatmap.tsx";
 import { Community } from "@/components/Community.tsx";
-import { SetupTabs } from "@/components/SetupTabs.tsx";
-import { Champion } from "@/components/Champion.tsx";
-import { Avatar, Label, btn } from "@/components/ui.tsx";
+import { Label, btn } from "@/components/ui.tsx";
 import { JsonLd } from "@/components/JsonLd.tsx";
 import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site.ts";
 
@@ -38,31 +35,11 @@ function SectionHead({ label, title, sub }: { label?: string; title: string; sub
 }
 
 export default async function Home() {
-  const user = await currentUser();
-  const board = await leaderboard(7, 6);
-  const leader = board[0] ? await userByUsername(board[0].username) : null;
-  const end = todayFor(leader?.timezone ?? "UTC");
-
-  let cells: HeatCell[];
-  let languages: { name: string; seconds: number }[];
-  let dailyAvg: number;
-  let leaderSummary: Awaited<ReturnType<typeof summary>> | null = null;
-  if (leader) {
-    cells = await dailySeries(leader.id, addDays(end, -370), end);
-    languages = await breakdown(leader.id, "language", addDays(end, -29), end, 5);
-    leaderSummary = await summary(leader.id, leader.timezone);
-    dailyAvg = leaderSummary.dailyAvg;
-  } else {
-    cells = sampleYear(end);
-    languages = [{ name: "TypeScript", seconds: 41000 }, { name: "Rust", seconds: 23000 }, { name: "Python", seconds: 9000 }];
-    dailyAvg = 9600;
-  }
-  const yearCells = cells.filter((c) => c.date >= addDays(end, -364));
-  const total = yearCells.reduce((a, c) => a + c.seconds, 0);
-  const bestDay = yearCells.reduce((m, c) => Math.max(m, c.seconds), 0);
-  const ai = yearCells.reduce((a, c) => a + c.ai_seconds, 0);
+  // Signed-in people go straight to the leaderboard; the landing page is the same for every visitor.
+  if (await currentUser()) redirect("/leaderboard");
+  const end = todayFor("UTC");
+  const cells = sampleYear(end);
   const totals = await siteTotals();
-  const origin = await publicOrigin();
 
   return (
     <>
@@ -88,7 +65,7 @@ export default async function Home() {
         <div aria-hidden className="ember-pool absolute left-1/2 top-24 h-80 w-[46rem] max-w-full -translate-x-1/2" />
         <div className="relative mx-auto flex max-w-5xl flex-col items-center px-5 pb-28 pt-10 text-center sm:px-6 md:pb-36 md:pt-20">
           <Link
-            href="/leaderboard"
+            href="/login"
             className="rise inline-flex max-w-full items-center gap-2 rounded-full border border-line bg-surface/80 py-1.5 pl-2 pr-3.5 text-[13px] text-muted shadow-card backdrop-blur transition-colors hover:text-text sm:text-sm"
           >
             <span className="grid size-6 place-items-center rounded-full bg-accent-soft text-accent">
@@ -115,31 +92,27 @@ export default async function Home() {
           </p>
 
           <div className="rise mt-10 flex w-full flex-col justify-center gap-3 sm:w-auto sm:flex-row" style={{ ["--d" as string]: 3 }}>
-            <Link href={user ? "/dashboard" : "/login"} className={btn.primary + " sm:px-7"}>
-              {user ? "Open dashboard" : "Start tracking"} <ArrowRight size={16} weight="bold" />
+            <Link href="/login" className={btn.primary + " sm:px-7"}>
+              Start tracking <ArrowRight size={16} weight="bold" />
             </Link>
-            <Link href="#setup" className={btn.secondary + " sm:px-7"}>
+            <Link href="/setup" className={btn.secondary + " sm:px-7"}>
               How to set up
             </Link>
           </div>
         </div>
       </section>
 
-      {/* Live preview */}
-      <section id="live" className="mx-auto max-w-6xl scroll-mt-28 px-5 pb-28 sm:px-6">
+      {/* What your year looks like (sample data, never a real person's) */}
+      <section id="heatmap" className="mx-auto max-w-6xl scroll-mt-28 px-5 pb-28 sm:px-6">
         <SectionHead
-          label="Live"
-          title={leader ? `${leader.display_name.split(" ")[0]}'s year, live` : "A year at a glance"}
-          sub={leader ? "Real data from this week's #1. Hover any day to see the hours behind it." : "Sample data. Your own heatmap fills in as soon as a collector sends its first heartbeat."}
+          label="Your heatmap"
+          title="One square for every day you code"
+          sub="The more you code, the brighter it glows. Hover any day to see the hours behind it."
         />
-        <LivePreview
-          cells={cells}
-          end={end}
-          languages={languages}
-          bestDay={bestDay}
-          dailyAvg={dailyAvg}
-          aiShare={total ? Math.round((ai / total) * 100) : 0}
-        />
+        <div className="rounded-3xl border border-line bg-surface p-5 shadow-card sm:p-8">
+          <Heatmap cells={cells} end={end} />
+          <p className="mt-4 text-xs text-faint">Sample data. Yours fills in from your first coding session.</p>
+        </div>
       </section>
 
       {/* Community, live */}
@@ -150,49 +123,28 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* Leaderboard */}
-      {board.length > 0 && (
-        <section className="mx-auto max-w-6xl px-5 py-28 sm:px-6">
-          <SectionHead title="Who's burning brightest" sub="Ranked by tracked time over the last 7 days. The #1 spot gets the stage, and their words." />
-          <Champion row={board[0]} period="this week" />
-          {board.length > 1 && (
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-              {board.slice(1, 6).map((r) => (
-                <Link
-                  key={r.user_id}
-                  href={`/u/${r.username}`}
-                  className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-4 shadow-card transition-transform duration-200 hover:-translate-y-0.5"
-                >
-                  <span className="num w-4 text-sm font-semibold text-faint">{r.rank}</span>
-                  <Avatar name={r.display_name} src={r.avatar_url} size={34} />
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-semibold">{r.display_name}</span>
-                    <span className="num block text-xs text-muted">{formatDuration(r.seconds)}</span>
-                  </span>
-                </Link>
-              ))}
-            </div>
-          )}
-          <div className="mt-10 text-center">
-            <Link href="/leaderboard" className={btn.secondary}>
-              Full leaderboard <ArrowRight size={14} />
-            </Link>
-          </div>
-        </section>
-      )}
-
       {/* Setup */}
       <section id="setup" className="scroll-mt-28 border-y border-line bg-surface-2/60">
-        <div className="mx-auto grid max-w-6xl gap-12 px-5 py-28 sm:px-6 lg:grid-cols-[0.85fr_1.15fr]">
-          <div>
-            <Label>Setup</Label>
-            <h2 className="mt-4 font-display text-4xl font-medium leading-[1.05] tracking-tight sm:text-5xl">One key. Every editor and agent.</h2>
-            <p className="mt-5 max-w-[44ch] text-lg leading-relaxed text-muted">
-              Install the CLI with npm or bun and run one command. It connects VS Code, Cursor, Windsurf, Claude Code and Codex, and queues activity while you are offline.
-            </p>
-          </div>
-          <div className="min-w-0 rounded-3xl border border-line bg-surface p-5 shadow-card sm:p-7">
-            <SetupTabs origin={origin} />
+        <div className="mx-auto max-w-6xl px-5 py-28 sm:px-6">
+          <SectionHead label="Setup" title="Set up in three steps" sub="Works with VS Code, Cursor, Windsurf, Claude Code, Codex and Cursor Agent. About two minutes." />
+          <ol className="grid gap-4 md:grid-cols-3">
+            {[
+              { title: "Sign in", body: "Continue with GitHub or Google, then create your API key in Settings.", cmd: null },
+              { title: "Install the CLI", body: "With npm, bun or pnpm. One install covers every editor and agent.", cmd: "npm install -g embertime" },
+              { title: "Connect everything", body: "Paste your key. Ember finds your editors and agents and connects them.", cmd: "embertime setup --key YOUR_KEY" },
+            ].map((step, i) => (
+              <li key={step.title} className="flex flex-col rounded-3xl border border-line bg-surface p-6 shadow-card">
+                <span className="num grid size-9 place-items-center rounded-full bg-accent-soft text-sm font-semibold text-accent-text">{i + 1}</span>
+                <h3 className="mt-5 font-display text-xl font-medium tracking-tight">{step.title}</h3>
+                <p className="mt-2 flex-1 leading-relaxed text-muted">{step.body}</p>
+                {step.cmd && <code className="num mt-5 block rounded-xl border border-line bg-surface-2 px-3 py-2.5 text-[13px] text-text">{step.cmd}</code>}
+              </li>
+            ))}
+          </ol>
+          <div className="mt-10 text-center">
+            <Link href="/setup" className={btn.secondary}>
+              Step-by-step guide for each tool <ArrowRight size={14} />
+            </Link>
           </div>
         </div>
       </section>
@@ -211,8 +163,8 @@ export default async function Home() {
             </p>
           )}
           <div className="mt-10">
-            <Link href={user ? "/settings#api-key" : "/login"} className={btn.primary}>
-              {user ? "Get your API key" : "Start tracking"}
+            <Link href="/login" className={btn.primary}>
+              Start tracking
             </Link>
           </div>
         </div>

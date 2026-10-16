@@ -1,4 +1,4 @@
-import { siGithub, siX } from "simple-icons";
+import { siClaude, siCursor, siGithub, siWindsurf, siX } from "simple-icons";
 
 // Official brand marks for the sign-in buttons. GitHub and X come from Simple
 // Icons; the four-colour Google "G" is Google's own sign-in asset, which its
@@ -30,3 +30,14 @@ export function GoogleG({ size = 20 }: { size?: number }) {
     </svg>
   );
 }
+
+function mark(path: string, size: number) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden fill="currentColor">
+      <path d={path} />
+    </svg>
+  );
+}
+export const CursorMark = ({ size = 18 }: { size?: number }) => mark(siCursor.path, size);
+export const WindsurfMark = ({ size = 18 }: { size?: number }) => mark(siWindsurf.path, size);
+export const ClaudeMark = ({ size = 18 }: { size?: number }) => mark(siClaude.path, size);

@@ -40,7 +40,15 @@ const themeScript = `try{var t=localStorage.getItem("ember-theme");if(t==="light
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const user = await currentUser();
-  const links = [{ href: "/leaderboard", label: "Leaderboard" }, ...(user ? [{ href: "/dashboard", label: "Dashboard" }, { href: "/settings", label: "Settings" }] : [])];
+  // The leaderboard is members-only, so signed-out visitors only see the setup guide.
+  const links = user
+    ? [
+        { href: "/leaderboard", label: "Leaderboard" },
+        { href: "/dashboard", label: "Dashboard" },
+        { href: "/settings", label: "Settings" },
+        { href: "/setup", label: "Setup" },
+      ]
+    : [{ href: "/setup", label: "Setup guide" }];
 
   return (
     <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable} ${jakarta.variable}`} suppressHydrationWarning>
@@ -93,9 +101,6 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 <p className="mt-2 text-sm text-muted">Tracks time, never file contents or prompts.</p>
               </div>
               <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted">
-                <Link href="/leaderboard" className="hover:text-text">Leaderboard</Link>
-                <Link href="/#community" className="hover:text-text">This week</Link>
-                <Link href="/#setup" className="hover:text-text">Setup</Link>
                 <Link href="/privacy" className="hover:text-text">Privacy</Link>
                 <Link href="/terms" className="hover:text-text">Terms</Link>
               </div>

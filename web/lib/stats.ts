@@ -382,3 +382,53 @@ export async function insights(userId: number, tz: string): Promise<Insights> {
     peakHour: peak && hourTotal ? { hour: peak.hour, share: peak.seconds / hourTotal } : null,
   };
 }
+
+// ---- Rolling 24-hour leaderboard ---------------------------------------------------
+
+const board24Cache = new Map<string, { at: number; rows: LeaderRow[] }>();
+
+/**
+ * Ranks the last 24 hours (not a calendar day) straight from heartbeats, using
+ * the same merged-timeline rule as the daily rollups. `offsetHours` shifts the
+ * window back, e.g. 24 for the previous day's ranks. Cached for a minute.
+ */
+export async function leaderboard24h(limit = 100, opts: { offsetHours?: number; language?: string } = {}): Promise<LeaderRow[]> {
+  const key = `${opts.offsetHours ?? 0}|${opts.language ?? ""}`;
+  const cached = board24Cache.get(key);
+  const now = nowSec();
+  if (cached && now - cached.at < 60) return cached.rows.slice(0, limit);
+
+  const end = now - (opts.offsetHours ?? 0) * 3600;
+  const beats = await all<Beat & { user_id: number }>(
+    "SELECT user_id, time, project, language, editor, category FROM heartbeats WHERE time >= ? AND time < ? ORDER BY user_id, time",
+    end - 86400, end,
+  );
+  const byUser = new Map<number, Beat[]>();
+  for (const b of beats) {
+    const list = byUser.get(b.user_id) ?? [];
+    list.push(b);
+    byUser.set(b.user_id, list);
+  }
+  const scored = [...byUser.entries()]
+    .map(([user_id, list]) => {
+      const d = computeDurations(list);
+      const languages = [...d.language.entries()].sort((a, b) => b[1] - a[1]).map(([name, seconds]) => ({ name, seconds }));
+      const seconds = opts.language ? d.language.get(opts.language) ?? 0 : d.total;
+      return { user_id, seconds, ai_seconds: opts.language ? 0 : d.ai, languages };
+    })
+    .filter((r) => r.seconds > 0);
+
+  const users = scored.length
+    ? await all<{ user_id: number; username: string; display_name: string; avatar_url: string; quote: string; bio: string; twitter: string; github: string; location: string }>(
+        `SELECT id AS user_id, username, display_name, avatar_url, quote, bio, twitter, github, location FROM users WHERE id IN (${scored.map(() => "?").join(",")})`,
+        ...scored.map((r) => r.user_id),
+      )
+    : [];
+  const info = new Map(users.map((u) => [u.user_id, u]));
+  const rows: LeaderRow[] = scored
+    .filter((r) => info.has(r.user_id))
+    .sort((a, b) => b.seconds - a.seconds || info.get(a.user_id)!.username.localeCompare(info.get(b.user_id)!.username))
+    .map((r, i) => ({ ...info.get(r.user_id)!, ...r, rank: i + 1, daily_avg: r.seconds, top_language: r.languages[0]?.name ?? null }));
+  board24Cache.set(key, { at: now, rows });
+  return rows.slice(0, limit);
+}

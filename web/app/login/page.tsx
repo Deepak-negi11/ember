@@ -20,7 +20,7 @@ const ERRORS: Record<string, string> = {
 };
 
 export default async function Login({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
-  if (await currentUser()) redirect("/dashboard");
+  if (await currentUser()) redirect("/leaderboard");
   const sp = await searchParams;
   const x = providerConfigured("x");
   const google = providerConfigured("google");
