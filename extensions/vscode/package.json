@@ -57,7 +57,7 @@
       "properties": {
         "ember.apiUrl": {
           "type": "string",
-          "default": "http://localhost:3000",
+          "default": "https://ember-dev.vercel.app",
           "markdownDescription": "Base URL of your Ember server. User-level only, so a workspace can't redirect your heartbeats or API key. When left unset, `api_url` from `~/.ember/config.json` is used if present.",
           "scope": "application"
         }
@@ -79,5 +79,14 @@
     "@types/vscode": "~1.85.0",
     "esbuild": "~0.25.12",
     "typescript": "~5.9.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Deepak-negi11/ember",
+    "directory": "extensions/vscode"
+  },
+  "homepage": "https://ember-dev.vercel.app",
+  "bugs": {
+    "url": "https://github.com/Deepak-negi11/ember/issues"
   }
 }

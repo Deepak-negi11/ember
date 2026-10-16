@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { apply, writeEmberConfig } from './install.mjs';
 
 // Public server and Marketplace id. Change DEFAULT_API_URL before publishing.
-export const DEFAULT_API_URL = process.env.EMBER_DEFAULT_API_URL || 'http://localhost:3000';
+export const DEFAULT_API_URL = process.env.EMBER_DEFAULT_API_URL || 'https://ember-dev.vercel.app';
 export const EXTENSION_ID = 'ember-dev.ember';
 const KEY_RE = /^ember_[0-9a-f]{40}$/i;
 const HERE = path.dirname(fileURLToPath(import.meta.url));

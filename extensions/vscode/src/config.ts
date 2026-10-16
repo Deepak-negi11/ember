@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-export const DEFAULT_API_URL = 'http://localhost:3000';
+export const DEFAULT_API_URL = 'https://ember-dev.vercel.app';
 export const API_KEY_RE = /^ember_[0-9a-f]{40}$/i;
 
 export interface SharedConfig {

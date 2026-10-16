@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 
 export const VERSION = '0.1.0';
 export const AGENTS = ['claude-code', 'codex'];
-export const DEFAULT_API_URL = 'http://localhost:3000';
+export const DEFAULT_API_URL = 'https://ember-dev.vercel.app';
 
 const QUEUE_CAP = 20_000; // max lines kept in queue.jsonl (oldest dropped)
 const BATCH_SIZE = 500; // server maximum per request

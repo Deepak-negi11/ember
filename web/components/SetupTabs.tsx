@@ -5,7 +5,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Key } from "@phosphor-icons/react";
 import { CopyButton } from "./forms.tsx";
 
-const DEFAULT_API = "http://localhost:3000";
+const DEFAULT_API = "https://ember-dev.vercel.app";
 const EXTENSION_ID = "ember-dev.ember";
 const EXTENSION_NAME = "Ember: Coding Time Tracker";
 

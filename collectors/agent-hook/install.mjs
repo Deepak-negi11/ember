@@ -131,7 +131,7 @@ export function writeEmberConfig({ key, apiUrl, env = process.env }) {
   }
   if (key) cfg.api_key = key;
   if (apiUrl) cfg.api_url = apiUrl.replace(/\/+$/, '');
-  if (!cfg.api_url) cfg.api_url = 'http://localhost:3000';
+  if (!cfg.api_url) cfg.api_url = 'https://ember-dev.vercel.app';
   writeJson(file, cfg, 0o600);
   return file;
 }

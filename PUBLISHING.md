@@ -23,20 +23,23 @@ which only exists on your laptop. Deploy `web/` somewhere with HTTPS and a
   `https://your-domain/api/auth/callback/x` (and `/google`) as callback URLs.
 - Do **not** set `EMBER_DEV_LOGIN` in production.
 
-Then point the clients at it before publishing:
+The clients point at **https://ember-dev.vercel.app**. If the domain ever changes,
+update these 6 places, then bump versions and republish the extension and npm package:
 
-- `extensions/vscode/package.json`: `contributes.configuration...ember.apiUrl.default`
+- `extensions/vscode/src/config.ts`: `DEFAULT_API_URL`
+- `extensions/vscode/package.json`: `ember.apiUrl` default
 - `collectors/agent-hook/cli.mjs`: `DEFAULT_API_URL`
-- `collectors/agent-hook/install.mjs`: the `http://localhost:3000` fallback in `writeEmberConfig`
+- `collectors/agent-hook/ember-hook.mjs`: `DEFAULT_API_URL`
+- `collectors/agent-hook/install.mjs`: fallback `api_url` in `writeEmberConfig`
+- `web/components/SetupTabs.tsx`: `DEFAULT_API`
+
+Also update `EMBER_URL` on Vercel and the callback URLs in the GitHub, Google
+and X sign-in apps (`<domain>/api/auth/callback/<github|google|x>`).
 
 ## 1. Put the code on GitHub
 
-The stores link to it, and `vsce` warns without it. Add to
-`extensions/vscode/package.json`:
-
-```json
-"repository": { "type": "git", "url": "https://github.com/<you>/ember" }
-```
+Done: the repo is https://github.com/Deepak-negi11/ember and both
+`package.json` files link to it.
 
 ## 2. VS Code Marketplace (VS Code users)
 
