@@ -107,5 +107,6 @@ export const EDITOR_NAMES: Record<string, string> = {
   windsurf: "Windsurf",
   vscodium: "VSCodium",
   "claude-code": "Claude Code",
+  "cursor-agent": "Cursor Agent",
   codex: "Codex",
 };

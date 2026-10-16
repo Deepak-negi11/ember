@@ -4,7 +4,7 @@ import { formatDuration } from "@/lib/time.ts";
 import { HourChart } from "./HourChart.tsx";
 import { EDITOR_NAMES } from "./ui.tsx";
 
-const AGENTS = new Set(["claude-code", "codex"]);
+export const AGENTS = new Set(["claude-code", "codex", "cursor-agent"]);
 
 /** "This week on Ember": live aggregates across every developer. */
 export async function Community() {

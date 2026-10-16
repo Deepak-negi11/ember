@@ -13,6 +13,7 @@ import {
   detectStack,
   languageForPath,
   parseArgs,
+  cursorReply,
 } from '../ember-hook.mjs';
 import { tmpDir, makeRepo } from './helpers.mjs';
 
@@ -180,4 +181,37 @@ test('languageForPath', () => {
   assert.equal(languageForPath('/a/Dockerfile.dev'), 'Docker');
   assert.equal(languageForPath('/a/Makefile'), 'Makefile');
   assert.equal(languageForPath('/a/unknown.zzz'), undefined);
+});
+
+test('cursor agent: project from workspace_roots, language and write from afterFileEdit file_path', () => {
+  const root = makeRepo(path.join(tmpDir(), 'cursor-proj'), { branch: 'feat/x', files: { 'package.json': '{"dependencies":{"next":"16"}}' } });
+  const hb = buildHeartbeat(
+    { hook_event_name: 'afterFileEdit', workspace_roots: [root], file_path: 'src/app.tsx', edits: [{ old_string: 'secret', new_string: 'code' }] },
+    { agent: 'cursor-agent', now: 1000, env: {} },
+  );
+  assert.equal(hb.editor, 'cursor-agent');
+  assert.equal(hb.category, 'ai');
+  assert.equal(hb.project, 'cursor-proj');
+  assert.equal(hb.branch, 'feat/x');
+  assert.equal(hb.language, 'TSX');
+  assert.equal(hb.is_write, true);
+  assert.equal(hb.entity, crypto.createHash('sha1').update(path.join(root, 'src/app.tsx')).digest('hex'));
+  assert.ok(hb.stack.includes('Next.js'));
+  // Edit contents never leave the machine.
+  assert.ok(!JSON.stringify(hb).includes('secret'));
+});
+
+test('cursor agent: falls back to CURSOR_PROJECT_DIR when no workspace_roots', () => {
+  const root = makeRepo(path.join(tmpDir(), 'env-proj'));
+  const hb = buildHeartbeat({ hook_event_name: 'stop' }, { agent: 'cursor-agent', now: 1, env: { CURSOR_PROJECT_DIR: root } });
+  assert.equal(hb.project, 'env-proj');
+  assert.equal(hb.is_write, false);
+});
+
+test('cursorReply: neutral JSON for Cursor, nothing for other agents', () => {
+  assert.equal(cursorReply('cursor-agent', { hook_event_name: 'beforeSubmitPrompt' }), '{"continue":true}');
+  assert.equal(cursorReply('cursor-agent', { hook_event_name: 'stop' }), '{}');
+  assert.equal(cursorReply('claude-code', { hook_event_name: 'UserPromptSubmit' }), '');
+  assert.equal(cursorReply('codex', {}), '');
+  assert.equal(parseArgs(['--agent', 'cursor-agent']).agent, 'cursor-agent');
 });

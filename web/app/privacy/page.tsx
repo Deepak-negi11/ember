@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { LegalPage } from "@/components/LegalPage.tsx";
 
-export const metadata = { title: "Privacy policy", description: "What Ember collects, what it never collects, and how it is used." };
+export const metadata = { alternates: { canonical: "/privacy" }, title: "Privacy policy", description: "What Ember collects, what it never collects, and how it is used." };
 
 const CONTACT = "https://github.com/Deepak-negi11/ember/issues";
 

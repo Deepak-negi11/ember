@@ -96,3 +96,25 @@ test('refuses to overwrite an unparseable settings file', () => {
   assert.equal(r.code, 1);
   assert.equal(fs.readFileSync(file, 'utf8'), '{ not json');
 });
+
+test('cursor: writes ~/.cursor/hooks.json in Cursor format, keeps user hooks, idempotent, uninstalls only Ember', () => {
+  const home = tmpDir('ember-home-');
+  const file = path.join(home, '.cursor', 'hooks.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ version: 1, hooks: { afterFileEdit: [{ command: './hooks/format.sh' }] } }));
+
+  assert.equal(install(home, 'cursor').code, 0);
+  const once = readJson(file);
+  assert.equal(once.version, 1);
+  const ember = (s) => Object.values(s.hooks || {}).flat().filter((h) => h.command.includes('ember-hook.mjs'));
+  assert.deepEqual(Object.keys(once.hooks).sort(), ['afterFileEdit', 'beforeSubmitPrompt', 'sessionStart', 'stop']);
+  assert.equal(ember(once).length, 4);
+  assert.ok(ember(once).every((h) => h.command.includes('--agent cursor-agent') && h.timeout === 10));
+  assert.ok(once.hooks.afterFileEdit.some((h) => h.command === './hooks/format.sh'));
+
+  install(home, 'cursor');
+  assert.equal(ember(readJson(file)).length, 4, 'second run must not duplicate');
+
+  assert.equal(install(home, 'cursor', '--uninstall').code, 0);
+  assert.deepEqual(readJson(file), { version: 1, hooks: { afterFileEdit: [{ command: './hooks/format.sh' }] } });
+});

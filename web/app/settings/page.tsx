@@ -8,9 +8,10 @@ import { publicOrigin } from "@/lib/origin.ts";
 import { logout } from "@/app/actions.ts";
 import { ApiKeyPanel, ProfileForm } from "@/components/SettingsForms.tsx";
 import { SetupTabs } from "@/components/SetupTabs.tsx";
+import { YourTools } from "@/components/YourTools.tsx";
 import { Card, btn } from "@/components/ui.tsx";
 
-export const metadata = { title: "Settings" };
+export const metadata = { title: "Settings", robots: { index: false } };
 
 function ago(sec: number) {
   const d = Math.floor(Date.now() / 1000) - sec;
@@ -63,6 +64,9 @@ export default async function Settings({ searchParams }: { searchParams: Promise
         <div className="mt-8 border-t border-line pt-6">
           <h3 className="mb-4 font-medium">Connect your tools</h3>
           <SetupTabs origin={await publicOrigin()} keyHint={key?.hint ?? null} />
+        </div>
+        <div className="mt-8 border-t border-line pt-6">
+          <YourTools userId={user.id} timezone={user.timezone} />
         </div>
       </Card>
 

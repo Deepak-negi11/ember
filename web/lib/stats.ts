@@ -191,27 +191,50 @@ export interface LeaderRow {
  * UTC calendar; per-user dates are local, so the edges can differ by a few hours
  * across time zones, which is an accepted approximation for a weekly board.
  */
-export async function leaderboard(days: number, limit = 100): Promise<LeaderRow[]> {
+export interface BoardOptions {
+  /** Shift the window back this many days (e.g. `days` for the previous period). */
+  offsetDays?: number;
+  /** Rank by time in one language instead of total time. */
+  language?: string;
+  /** Skip the per-user language lists (only positions are needed). */
+  ranksOnly?: boolean;
+}
+
+export async function leaderboard(days: number, limit = 100, opts: BoardOptions = {}): Promise<LeaderRow[]> {
   const today = localDate(nowSec(), "UTC");
-  const from = addDays(today, -(days - 1));
-  const end = addDays(today, 1);
-  const rows = await all<Omit<LeaderRow, "rank" | "daily_avg" | "languages">>(
-    `SELECT u.id AS user_id, u.username, u.display_name, u.avatar_url, u.quote, u.bio, u.twitter, u.github, u.location,
-            SUM(s.seconds) AS seconds, SUM(s.ai_seconds) AS ai_seconds,
-            (SELECT b.name FROM daily_breakdown b
-              WHERE b.user_id = u.id AND b.kind = 'language' AND b.date BETWEEN ? AND ?
-              GROUP BY b.name ORDER BY SUM(b.seconds) DESC LIMIT 1) AS top_language
-       FROM daily_stats s JOIN users u ON u.id = s.user_id
-      WHERE s.date BETWEEN ? AND ?
-      GROUP BY u.id
-      HAVING seconds > 0
-      ORDER BY seconds DESC, u.username ASC
-      LIMIT ?`,
-    from, end, from, end, limit,
-  );
+  const offset = opts.offsetDays ?? 0;
+  const anchor = addDays(today, -offset);
+  const from = addDays(anchor, -(days - 1));
+  // The current window reaches one day ahead to cover time zones east of UTC.
+  const end = offset ? anchor : addDays(anchor, 1);
+  const cols = `u.id AS user_id, u.username, u.display_name, u.avatar_url, u.quote, u.bio, u.twitter, u.github, u.location`;
+  const topLang = `(SELECT b2.name FROM daily_breakdown b2
+              WHERE b2.user_id = u.id AND b2.kind = 'language' AND b2.date BETWEEN ? AND ?
+              GROUP BY b2.name ORDER BY SUM(b2.seconds) DESC LIMIT 1) AS top_language`;
+  const rows = opts.language
+    ? await all<Omit<LeaderRow, "rank" | "daily_avg" | "languages">>(
+        `SELECT ${cols}, SUM(b.seconds) AS seconds, 0 AS ai_seconds, ${topLang}
+           FROM daily_breakdown b JOIN users u ON u.id = b.user_id
+          WHERE b.kind = 'language' AND b.name = ? AND b.date BETWEEN ? AND ?
+          GROUP BY u.id
+          HAVING seconds > 0
+          ORDER BY seconds DESC, u.username ASC
+          LIMIT ?`,
+        from, end, opts.language, from, end, limit,
+      )
+    : await all<Omit<LeaderRow, "rank" | "daily_avg" | "languages">>(
+        `SELECT ${cols}, SUM(s.seconds) AS seconds, SUM(s.ai_seconds) AS ai_seconds, ${topLang}
+           FROM daily_stats s JOIN users u ON u.id = s.user_id
+          WHERE s.date BETWEEN ? AND ?
+          GROUP BY u.id
+          HAVING seconds > 0
+          ORDER BY seconds DESC, u.username ASC
+          LIMIT ?`,
+        from, end, from, end, limit,
+      );
   // One grouped query for everyone's languages instead of one query per row.
   const langs = new Map<number, { name: string; seconds: number }[]>();
-  if (rows.length) {
+  if (rows.length && !opts.ranksOnly) {
     const ids = rows.map((r) => r.user_id);
     for (const l of await all<{ user_id: number; name: string; seconds: number }>(
       `SELECT user_id, name, SUM(seconds) AS seconds FROM daily_breakdown
@@ -303,4 +326,59 @@ export async function communityWeek(): Promise<CommunityWeek> {
   };
   communityCache = { at: now, value };
   return value;
+}
+
+/** Languages with the most tracked time in the window, for the leaderboard filter. */
+export function boardLanguages(days: number, limit = 10) {
+  const today = localDate(nowSec(), "UTC");
+  return all<{ name: string; seconds: number }>(
+    `SELECT name, SUM(seconds) AS seconds FROM daily_breakdown
+      WHERE kind = 'language' AND date BETWEEN ? AND ? AND name <> 'Other'
+      GROUP BY name ORDER BY seconds DESC LIMIT ?`,
+    addDays(today, -(days - 1)), addDays(today, 1), limit,
+  );
+}
+
+/** Rank each user held in the previous window, for ▲/▼ movement. */
+export async function previousRanks(days: number, opts: Omit<BoardOptions, "offsetDays"> = {}) {
+  const prev = await leaderboard(days, 10_000, { ...opts, offsetDays: days, ranksOnly: true });
+  return new Map(prev.map((r) => [r.user_id, r.rank]));
+}
+
+// ---- Personal insights ----------------------------------------------------------
+
+export interface Insights {
+  thisWeek: number;
+  lastWeek: number;
+  /** Weekday (0 = Sunday) with the highest average over the last 12 weeks, or null. */
+  bestWeekday: { day: number; avg: number } | null;
+  /** Local hour with the most tracked time in the last 30 days, or null. */
+  peakHour: { hour: number; share: number } | null;
+}
+
+export async function insights(userId: number, tz: string): Promise<Insights> {
+  const today = todayFor(tz);
+  const [days, hours] = await Promise.all([
+    dailySeries(userId, addDays(today, -83), today),
+    all<{ hour: number; seconds: number }>(
+      "SELECT hour, SUM(seconds) AS seconds FROM daily_hours WHERE user_id = ? AND date BETWEEN ? AND ? GROUP BY hour",
+      userId, addDays(today, -29), today,
+    ),
+  ]);
+  const sum = (from: string, to: string) => days.filter((d) => d.date >= from && d.date <= to).reduce((a, d) => a + d.seconds, 0);
+
+  // Average per weekday over all 12 weeks (days without activity count as zero).
+  const totals = new Array<number>(7).fill(0);
+  for (const d of days) totals[new Date(`${d.date}T00:00:00Z`).getUTCDay()] += d.seconds;
+  const best = totals.reduce((b, v, i) => (v > totals[b] ? i : b), 0);
+
+  const hourTotal = hours.reduce((a, h) => a + h.seconds, 0);
+  const peak = hours.reduce<{ hour: number; seconds: number } | null>((m, h) => (!m || h.seconds > m.seconds ? h : m), null);
+
+  return {
+    thisWeek: sum(addDays(today, -6), today),
+    lastWeek: sum(addDays(today, -13), addDays(today, -7)),
+    bestWeekday: totals[best] > 0 ? { day: best, avg: Math.round(totals[best] / 12) } : null,
+    peakHour: peak && hourTotal ? { hour: peak.hour, share: peak.seconds / hourTotal } : null,
+  };
 }

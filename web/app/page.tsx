@@ -10,6 +10,8 @@ import { Community } from "@/components/Community.tsx";
 import { SetupTabs } from "@/components/SetupTabs.tsx";
 import { Champion } from "@/components/Champion.tsx";
 import { Avatar, Label, btn } from "@/components/ui.tsx";
+import { JsonLd } from "@/components/JsonLd.tsx";
+import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site.ts";
 
 /** Deterministic sample year for an empty install, clearly labelled in the UI. */
 function sampleYear(end: string): HeatCell[] {
@@ -64,6 +66,23 @@ export default async function Home() {
 
   return (
     <>
+      <JsonLd
+        data={{
+          "@context": "https://schema.org",
+          "@graph": [
+            { "@type": "WebSite", "@id": `${SITE_URL}/#website`, url: SITE_URL, name: SITE_NAME, description: SITE_DESCRIPTION },
+            {
+              "@type": "SoftwareApplication",
+              name: SITE_NAME,
+              url: SITE_URL,
+              description: SITE_DESCRIPTION,
+              applicationCategory: "DeveloperApplication",
+              operatingSystem: "macOS, Windows, Linux",
+              offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+            },
+          ],
+        }}
+      />
       {/* Hero */}
       <section className="relative overflow-x-clip">
         <div aria-hidden className="ember-pool absolute left-1/2 top-24 h-80 w-[46rem] max-w-full -translate-x-1/2" />

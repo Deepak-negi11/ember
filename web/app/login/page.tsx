@@ -8,7 +8,7 @@ import { devLoginEnabled, providerConfigured } from "@/lib/oauth.ts";
 import { TzCookie } from "@/components/TzCookie.tsx";
 import { btn } from "@/components/ui.tsx";
 
-export const metadata = { title: "Sign in" };
+export const metadata = { title: "Sign in", robots: { index: false } };
 
 const ERRORS: Record<string, string> = {
   denied: "Sign-in was cancelled. You can try again whenever you like.",

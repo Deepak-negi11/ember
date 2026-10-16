@@ -49,7 +49,7 @@ function Steps({ steps }: { steps: Step[] }) {
 /**
  * Install instructions. The terminal path installs the `embertime` CLI
  * globally; `embertime setup` then installs the editor extension from the
- * Marketplace / Open VSX and the Claude Code and Codex hooks in one go.
+ * Marketplace / Open VSX and the Claude Code, Codex and Cursor Agent hooks in one go.
  */
 export function SetupTabs({ origin, keyHint }: { origin: string; keyHint?: string | null }) {
   const [tab, setTab] = useState<"terminal" | "editor" | "manage">("terminal");
@@ -79,7 +79,7 @@ export function SetupTabs({ origin, keyHint }: { origin: string; keyHint?: strin
           steps={[
             { text: "Install the Ember CLI globally.", cmd: manager.install },
             {
-              text: <>Connect everything. This installs the extension in VS Code, Cursor and Windsurf, and the hooks in Claude Code and Codex. Replace <b>YOUR_KEY</b> with your key.</>,
+              text: <>Connect everything. This installs the extension in VS Code, Cursor and Windsurf, and the hooks in Claude Code, Codex and Cursor&apos;s agent. Replace <b>YOUR_KEY</b> with your key.</>,
               cmd: `embertime setup --key YOUR_KEY${apiFlag}`,
             },
             { text: <>Using Codex? Open it and run <b>/hooks</b> once to trust the Ember entries.</> },

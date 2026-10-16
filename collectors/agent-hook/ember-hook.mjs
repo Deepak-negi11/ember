@@ -1,12 +1,13 @@
 #!/usr/bin/env node
-// Ember agent hook: records AI-agent activity (Claude Code, Codex CLI) as
+// Ember agent hook: records AI-agent activity (Claude Code, Codex CLI, Cursor Agent) as
 // Ember heartbeats.
 //
-// Usage:  node ember-hook.mjs --agent claude-code|codex   (hook JSON on stdin)
+// Usage:  node ember-hook.mjs --agent claude-code|codex|cursor-agent   (hook JSON on stdin)
 //
 // Guarantees:
 //   * zero dependencies, Node >= 18, ESM
-//   * never writes to stdout (agents may interpret it) and always exits 0
+//   * never writes to stdout for Claude Code / Codex (they may interpret it); for
+//     Cursor it prints the minimal JSON reply Cursor expects. Always exits 0
 //   * never sends file contents, raw paths or prompt text: files are reduced
 //     to sha1(absolute path) and the project to the git root's basename
 //   * heartbeats are appended to ~/.ember/queue.jsonl before any network I/O,
@@ -21,7 +22,10 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 export const VERSION = '0.1.0';
-export const AGENTS = ['claude-code', 'codex'];
+export const AGENTS = ['claude-code', 'codex', 'cursor-agent'];
+
+/** Events whose heartbeats are throttled: they fire on every tool call or file edit. */
+const HIGH_FREQUENCY_EVENTS = new Set(['PostToolUse', 'afterFileEdit']);
 export const DEFAULT_API_URL = 'https://ember-dev.vercel.app';
 
 const QUEUE_CAP = 20_000; // max lines kept in queue.jsonl (oldest dropped)
@@ -423,8 +427,11 @@ export function parsePayload(text) {
  * Build exactly one heartbeat from a hook payload. Only derived, non-sensitive
  * fields are copied: never prompt text, tool output, file contents or paths.
  */
-export function buildHeartbeat(payload, { agent, now = Date.now() / 1000 } = {}) {
-  const cwd = typeof payload.cwd === 'string' && payload.cwd ? payload.cwd : process.cwd();
+export function buildHeartbeat(payload, { agent, now = Date.now() / 1000, env = process.env } = {}) {
+  // Claude Code and Codex send `cwd`; Cursor sends `workspace_roots` (and sets CURSOR_PROJECT_DIR).
+  const roots = Array.isArray(payload.workspace_roots) ? payload.workspace_roots.filter((r) => typeof r === 'string' && r) : [];
+  const cwd =
+    (typeof payload.cwd === 'string' && payload.cwd) || roots[0] || env.CURSOR_PROJECT_DIR || process.cwd();
   const root = findGitRoot(cwd);
   const projectDir = root || path.resolve(cwd);
   const hb = {
@@ -432,13 +439,16 @@ export function buildHeartbeat(payload, { agent, now = Date.now() / 1000 } = {})
     project: path.basename(projectDir) || 'unknown',
     editor: agent,
     category: 'ai',
-    is_write: isWriteTool(payload.tool_name),
+    is_write: isWriteTool(payload.tool_name) || payload.hook_event_name === 'afterFileEdit',
   };
   if (root) {
     const branch = readBranch(root);
     if (branch) hb.branch = branch;
   }
-  const file = extractFilePath(payload.tool_input, cwd);
+  // Cursor's afterFileEdit puts the edited file at the top level.
+  const file =
+    extractFilePath(payload.tool_input, cwd) ||
+    (typeof payload.file_path === 'string' && payload.file_path.trim() ? path.resolve(cwd, payload.file_path.trim()) : undefined);
   if (file) {
     hb.entity = sha1(file);
     const language = languageForPath(file);
@@ -469,7 +479,7 @@ export function writeState(home, state) {
 
 /** PostToolUse heartbeats for the same agent+project are throttled to one per 30s. */
 export function shouldThrottle(state, hb, eventName) {
-  if (eventName !== 'PostToolUse') return false;
+  if (!HIGH_FREQUENCY_EVENTS.has(eventName)) return false;
   const last = state.last?.[`${hb.editor}|${hb.project}`];
   return typeof last === 'number' && hb.time - last < THROTTLE_SECONDS;
 }
@@ -748,7 +758,7 @@ export async function runHook({ argv = [], env = process.env, stdinText = '' } =
     }
     const payload = parsePayload(stdinText);
     const event = typeof payload.hook_event_name === 'string' ? payload.hook_event_name : '';
-    const hb = buildHeartbeat(payload, { agent });
+    const hb = buildHeartbeat(payload, { agent, env });
 
     const state = readState(home);
     if (shouldThrottle(state, hb, event)) return { status: 'throttled' };
@@ -777,9 +787,22 @@ async function main() {
     process.exit(0);
   }, HARD_EXIT_MS).unref();
 
+  const argv = process.argv.slice(2);
   const stdinText = await readStdin();
-  await runHook({ argv: process.argv.slice(2), stdinText });
+  await runHook({ argv, stdinText });
+  const reply = cursorReply(parseArgs(argv).agent, parsePayload(stdinText));
+  if (reply) process.stdout.write(reply);
   process.exit(0);
+}
+
+/**
+ * Cursor reads a hook's stdout as its JSON reply. Ember only observes, so it
+ * answers with the neutral reply: let the prompt continue, change nothing.
+ * Claude Code and Codex get no output at all.
+ */
+export function cursorReply(agent, payload) {
+  if (agent !== 'cursor-agent') return '';
+  return payload.hook_event_name === 'beforeSubmitPrompt' ? '{"continue":true}' : '{}';
 }
 
 function isMain() {

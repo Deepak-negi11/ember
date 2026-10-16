@@ -7,13 +7,25 @@ import { currentUser } from "@/lib/auth.ts";
 import { Avatar, Logo, btn } from "@/components/ui.tsx";
 import { NavLinks } from "@/components/NavLinks.tsx";
 import { ThemeToggle } from "@/components/ThemeToggle.tsx";
+import { Analytics } from "@vercel/analytics/next";
+import { SITE_DESCRIPTION, SITE_KEYWORDS, SITE_NAME, SITE_TAGLINE, SITE_URL } from "@/lib/site.ts";
 import "./globals.css";
 
 const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"], variable: "--font-jakarta", weight: ["400", "500", "600"] });
 
 export const metadata: Metadata = {
-  title: { default: "Ember: coding time, in heat", template: "%s · Ember" },
-  description: "Coding time tracking for VS Code, Cursor, Claude Code and Codex, with a yearly heatmap and leaderboard.",
+  metadataBase: new URL(SITE_URL),
+  title: { default: `${SITE_NAME}: ${SITE_TAGLINE}`, template: `%s · ${SITE_NAME}` },
+  description: SITE_DESCRIPTION,
+  applicationName: SITE_NAME,
+  keywords: SITE_KEYWORDS,
+  category: "developer tools",
+  alternates: { canonical: "/" },
+  openGraph: { type: "website", siteName: SITE_NAME, url: "/", title: `${SITE_NAME}: ${SITE_TAGLINE}`, description: SITE_DESCRIPTION, locale: "en_US" },
+  twitter: { card: "summary_large_image", title: `${SITE_NAME}: ${SITE_TAGLINE}`, description: SITE_DESCRIPTION },
+  robots: { index: true, follow: true },
+  // Google Search Console: paste the "HTML tag" verification code into GOOGLE_SITE_VERIFICATION on Vercel.
+  verification: process.env.GOOGLE_SITE_VERIFICATION ? { google: process.env.GOOGLE_SITE_VERIFICATION } : undefined,
 };
 
 export const viewport: Viewport = {
@@ -90,6 +102,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </div>
           </footer>
         </div>
+        <Analytics />
       </body>
     </html>
   );

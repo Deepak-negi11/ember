@@ -28,6 +28,13 @@ export const TARGETS = {
     events: ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop'],
     file: (env) => path.join(homeDir(env), '.claude', 'settings.json'),
   },
+  cursor: {
+    // Cursor's agent hooks: flat lists per event in ~/.cursor/hooks.json, plus "version": 1.
+    agent: 'cursor-agent',
+    format: 'cursor',
+    events: ['sessionStart', 'beforeSubmitPrompt', 'afterFileEdit', 'stop'],
+    file: (env) => path.join(homeDir(env), '.cursor', 'hooks.json'),
+  },
   codex: {
     agent: 'codex',
     events: ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop', 'SessionEnd'],
@@ -77,6 +84,33 @@ export function removeEmberHooks(settings) {
   }
   if (Object.keys(hooks).length === 0) delete settings.hooks;
   return touched;
+}
+
+/** Cursor format: { version: 1, hooks: { event: [{ command }] } }. Remove Ember entries (mutates). */
+export function removeCursorHooks(settings) {
+  const touched = [];
+  const hooks = settings.hooks;
+  if (!hooks || typeof hooks !== 'object') return touched;
+  for (const event of Object.keys(hooks)) {
+    const list = Array.isArray(hooks[event]) ? hooks[event] : [];
+    const kept = list.filter((h) => !isEmberHook(h));
+    if (kept.length !== list.length) {
+      touched.push(event);
+      if (kept.length) hooks[event] = kept;
+      else delete hooks[event];
+    }
+  }
+  if (Object.keys(hooks).length === 0) delete settings.hooks;
+  return touched;
+}
+
+export function addCursorHooks(settings, events, command) {
+  if (typeof settings.version !== 'number') settings.version = 1;
+  if (!settings.hooks || typeof settings.hooks !== 'object') settings.hooks = {};
+  for (const event of events) {
+    if (!Array.isArray(settings.hooks[event])) settings.hooks[event] = [];
+    settings.hooks[event].push({ command, timeout: 10 });
+  }
 }
 
 /** Add Ember hooks for `events` (mutates). Call removeEmberHooks first for idempotency. */
@@ -139,14 +173,15 @@ export function writeEmberConfig({ key, apiUrl, env = process.env }) {
 /** Install or uninstall hooks for one target. Returns a summary; throws on unparseable target file. */
 export function apply(targetName, { uninstall = false, env = process.env, nodePath, script } = {}) {
   const target = TARGETS[targetName];
-  if (!target) throw new Error(`unknown target "${targetName}" (expected claude or codex)`);
+  if (!target) throw new Error(`unknown target "${targetName}" (expected claude, codex or cursor)`);
   const file = target.file(env);
   const { exists, settings } = readSettings(file);
   const before = JSON.stringify(settings);
 
-  const removed = removeEmberHooks(settings);
+  const cursor = target.format === 'cursor';
+  const removed = cursor ? removeCursorHooks(settings) : removeEmberHooks(settings);
   const command = hookCommand(target.agent, { nodePath, script });
-  if (!uninstall) addEmberHooks(settings, target.events, command);
+  if (!uninstall) (cursor ? addCursorHooks : addEmberHooks)(settings, target.events, command);
 
   if (JSON.stringify(settings) === before) {
     return { file, changed: false, backup: null, removed, added: [], command };
@@ -172,7 +207,7 @@ function parseCli(argv) {
   return opts;
 }
 
-const USAGE = `Usage: node install.mjs <claude|codex> [--uninstall] [--key <ember_key>] [--api-url <url>]
+const USAGE = `Usage: node install.mjs <claude|codex|cursor> [--uninstall] [--key <ember_key>] [--api-url <url>]
        node install.mjs --key <ember_key> [--api-url <url>]`;
 
 function main() {

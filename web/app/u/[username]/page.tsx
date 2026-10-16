@@ -1,7 +1,11 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { CalendarBlank, GithubLogo, Globe, MapPin, Trophy, XLogo } from "@phosphor-icons/react/ssr";
 import { currentUser, userByUsername } from "@/lib/auth.ts";
-import { rankOf } from "@/lib/stats.ts";
+import { breakdown, rankOf, summary, todayFor } from "@/lib/stats.ts";
+import { addDays, formatDuration } from "@/lib/time.ts";
+import { SITE_URL } from "@/lib/site.ts";
+import { JsonLd } from "@/components/JsonLd.tsx";
 import { ProfileStats, parseRange } from "@/components/ProfileStats.tsx";
 import { Avatar, Card } from "@/components/ui.tsx";
 
@@ -10,10 +14,24 @@ type Props = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export async function generateMetadata({ params }: Props) {
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { username } = await params;
   const u = await userByUsername(username);
-  return { title: u ? `${u.display_name} (@${u.username})` : "Not found" };
+  if (!u) return { title: "Not found", robots: { index: false } };
+  const today = todayFor(u.timezone);
+  const [s, langs] = await Promise.all([summary(u.id, u.timezone), breakdown(u.id, "language", addDays(today, -29), today, 3)]);
+  const parts = [`${formatDuration(s.year)} of coding in the last year`];
+  if (langs.length) parts.push(`mostly ${langs.map((l) => l.name).join(", ")}`);
+  if (s.streak.current > 1) parts.push(`${s.streak.current}-day streak`);
+  const description = `${u.display_name}'s coding activity on Ember: ${parts.join(", ")}.${u.bio ? ` ${u.bio}` : ""}`.slice(0, 300);
+  const title = `${u.display_name} (@${u.username})`;
+  return {
+    title,
+    description,
+    alternates: { canonical: `/u/${u.username}` },
+    openGraph: { type: "profile", title, description, url: `/u/${u.username}`, username: u.username },
+    twitter: { card: "summary_large_image", title, description, creator: u.twitter ? `@${u.twitter}` : undefined },
+  };
 }
 
 export default async function Profile({ params, searchParams }: Props) {
@@ -26,8 +44,31 @@ export default async function Profile({ params, searchParams }: Props) {
   const rank = await rankOf(user.id, 7);
   const joined = new Date(user.created_at * 1000).toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
+  const sameAs = [
+    user.github && `https://github.com/${user.github}`,
+    user.twitter && `https://x.com/${user.twitter}`,
+    user.website,
+  ].filter(Boolean);
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-14">
+      <JsonLd
+        data={{
+          "@context": "https://schema.org",
+          "@type": "ProfilePage",
+          url: `${SITE_URL}/u/${user.username}`,
+          dateCreated: new Date(user.created_at * 1000).toISOString(),
+          mainEntity: {
+            "@type": "Person",
+            name: user.display_name,
+            alternateName: `@${user.username}`,
+            ...(user.bio ? { description: user.bio } : {}),
+            ...(user.avatar_url ? { image: user.avatar_url } : {}),
+            ...(user.location ? { homeLocation: { "@type": "Place", name: user.location } } : {}),
+            ...(sameAs.length ? { sameAs } : {}),
+          },
+        }}
+      />
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[320px_1fr]">
         <aside className="rise lg:sticky lg:top-24 lg:self-start">
           <Card className="p-6">

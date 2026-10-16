@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { LegalPage } from "@/components/LegalPage.tsx";
 
-export const metadata = { title: "Terms of use", description: "The rules for using Ember." };
+export const metadata = { alternates: { canonical: "/terms" }, title: "Terms of use", description: "The rules for using Ember." };
 
 const CONTACT = "https://github.com/Deepak-negi11/ember/issues";
 

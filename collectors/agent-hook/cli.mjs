@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// embertime: one command to connect every editor and AI agent on this machine.
+// embertime: one command to connect every editor and AI agent on this machine
+// (VS Code, Cursor, Windsurf, VSCodium, Claude Code, Codex, Cursor Agent).
 //
 //   npx embertime setup --key ember_...     install everything that is found
 //   npx embertime status                    show what is connected
@@ -105,7 +106,12 @@ async function setup(o) {
 
   const hasClaude = fs.existsSync(path.join(home(), '.claude')) || onPath('claude');
   const hasCodex = fs.existsSync(env.CODEX_HOME || path.join(home(), '.codex')) || onPath('codex');
-  for (const [target, found, label] of [['claude', hasClaude, 'Claude Code'], ['codex', hasCodex, 'Codex']]) {
+  const hasCursor = fs.existsSync(path.join(home(), '.cursor')) || onPath('cursor');
+  for (const [target, found, label] of [
+    ['claude', hasClaude, 'Claude Code'],
+    ['codex', hasCodex, 'Codex'],
+    ['cursor', hasCursor, 'Cursor Agent'],
+  ]) {
     if (!found) {
       results.push([label, 'not found, skipped']);
       continue;
@@ -134,6 +140,7 @@ async function status() {
   for (const [label, file] of [
     ['claude', path.join(home(), '.claude', 'settings.json')],
     ['codex', path.join(env.CODEX_HOME || path.join(home(), '.codex'), 'hooks.json')],
+    ['cursor', path.join(home(), '.cursor', 'hooks.json')],
   ]) {
     let on = false;
     try { on = fs.readFileSync(file, 'utf8').includes('ember-hook.mjs'); } catch { /* missing */ }
@@ -156,7 +163,7 @@ async function status() {
 }
 
 function uninstall(o) {
-  for (const t of ['claude', 'codex']) {
+  for (const t of ['claude', 'codex', 'cursor']) {
     try {
       const r = apply(t, { uninstall: true, env });
       console.log(`${t.padEnd(8)} ${r.changed ? 'hooks removed' : 'nothing to remove'}`);
@@ -177,7 +184,8 @@ const HELP = `embertime: track coding time across editors and AI agents
   npx embertime status
   npx embertime uninstall [--purge]
 
-setup finds VS Code, Cursor, Windsurf, VSCodium, Claude Code and Codex on this
+setup finds VS Code, Cursor, Windsurf, VSCodium, Claude Code, Codex and Cursor's
+agent on this
 machine and connects each one. Re-running it is safe.`;
 
 const o = parse(process.argv.slice(2));

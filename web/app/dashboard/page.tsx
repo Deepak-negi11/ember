@@ -3,13 +3,14 @@ import { redirect } from "next/navigation";
 import { ArrowRight, Trophy } from "@phosphor-icons/react/ssr";
 import { apiKeyInfo, currentUser } from "@/lib/auth.ts";
 import { get } from "@/lib/db.ts";
-import { leaderboard } from "@/lib/stats.ts";
+import { leaderboard, previousRanks } from "@/lib/stats.ts";
 import { LeaderRows } from "@/components/LeaderRows.tsx";
+import { YourTools } from "@/components/YourTools.tsx";
 import { ProfileStats, parseRange } from "@/components/ProfileStats.tsx";
 import { Card, btn } from "@/components/ui.tsx";
 import { formatDuration } from "@/lib/time.ts";
 
-export const metadata = { title: "Dashboard" };
+export const metadata = { title: "Dashboard", robots: { index: false } };
 
 function greeting(tz: string) {
   const h = Number(new Intl.DateTimeFormat("en-US", { hour: "numeric", hourCycle: "h23", timeZone: tz }).format(new Date()));
@@ -23,7 +24,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
   const range = parseRange(sp.range);
   const hasData = !!await get("SELECT 1 AS x FROM heartbeats WHERE user_id = ? LIMIT 1", user.id);
   const key = await apiKeyInfo(user.id);
-  const board = await leaderboard(7, 1000);
+  const [board, prev] = await Promise.all([leaderboard(7, 1000), previousRanks(7)]);
   const mineIdx = board.findIndex((r) => r.user_id === user.id);
   const rank = mineIdx === -1 ? null : { rank: mineIdx + 1, of: board.length };
   // Top 5, plus your own row if you are further down.
@@ -59,7 +60,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
             </li>
             <li className="rounded-xl bg-surface-2 p-4">
               <div className="font-medium">Install a collector</div>
-              <p className="mt-1 text-muted">VS Code or Cursor extension, plus hooks for Claude Code and Codex.</p>
+              <p className="mt-1 text-muted">One command connects VS Code, Cursor, Claude Code, Codex and Cursor&apos;s agent.</p>
             </li>
             <li className="rounded-xl bg-surface-2 p-4">
               <div className="font-medium">Write some code</div>
@@ -88,9 +89,13 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
               Full leaderboard <ArrowRight size={14} />
             </Link>
           </div>
-          <LeaderRows rows={shown} meId={user.id} max={board[0].seconds || 1} gapBefore={mineIdx > 4 ? mineIdx + 1 : undefined} />
+          <LeaderRows rows={shown} meId={user.id} max={board[0].seconds || 1} gapBefore={mineIdx > 4 ? mineIdx + 1 : undefined} prevRanks={prev} />
         </section>
       )}
+
+      <div className="rise mb-10" style={{ ["--d" as string]: 2 }}>
+        <YourTools userId={user.id} timezone={user.timezone} />
+      </div>
 
       <h2 className="mb-4 font-display text-2xl font-medium tracking-tight">Your stats</h2>
       <ProfileStats user={user} range={range} owner basePath="/dashboard" />
