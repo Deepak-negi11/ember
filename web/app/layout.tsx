@@ -8,8 +8,10 @@ import { Avatar, Logo, btn } from "@/components/ui.tsx";
 import { NavLinks } from "@/components/NavLinks.tsx";
 import { ProfileMenu } from "@/components/ProfileMenu.tsx";
 import { ThemeToggle } from "@/components/ThemeToggle.tsx";
+import { GitHubStar } from "@/components/GitHubStar.tsx";
+import { XMark } from "@/components/BrandIcons.tsx";
 import { Analytics } from "@vercel/analytics/next";
-import { SITE_DESCRIPTION, SITE_KEYWORDS, SITE_NAME, SITE_TAGLINE, SITE_URL } from "@/lib/site.ts";
+import { AUTHOR, SITE_DESCRIPTION, SITE_KEYWORDS, SITE_NAME, SITE_TAGLINE, SITE_URL } from "@/lib/site.ts";
 import "./globals.css";
 
 const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"], variable: "--font-jakarta", weight: ["400", "500", "600"] });
@@ -41,7 +43,7 @@ const themeScript = `try{var t=localStorage.getItem("ember-theme");if(t==="light
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const user = await currentUser();
-  // The leaderboard is members-only, so signed-out visitors only see the setup guide.
+  // Signed-out visitors get no page links: the landing page links to the setup guide itself.
   const links = user
     ? [
         { href: "/leaderboard", label: "Leaderboard" },
@@ -49,7 +51,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         { href: "/settings", label: "Settings" },
         { href: "/setup", label: "Setup" },
       ]
-    : [{ href: "/setup", label: "Setup guide" }];
+    : [];
 
   return (
     <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable} ${jakarta.variable}`} suppressHydrationWarning>
@@ -69,6 +71,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </div>
             <div className="ml-auto flex items-center gap-1.5">
               <ThemeToggle />
+              <span className={user ? "max-md:hidden" : "max-[360px]:hidden"}>
+                <GitHubStar />
+              </span>
               {user ? (
                 <>
                   <Link href="/leaderboard" className="rounded-full px-2.5 py-2 text-sm font-medium text-muted hover:text-text max-[400px]:hidden md:hidden">
@@ -84,11 +89,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   />
                 </>
               ) : (
-                <>
-                  <Link href="/login" className={btn.small}>
-                    Sign in
-                  </Link>
-                </>
+                <Link href="/login" className={btn.small}>
+                  Sign in
+                </Link>
               )}
             </div>
           </nav>
@@ -102,6 +105,22 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <div>
                 <Logo />
                 <p className="mt-2 text-sm text-muted">Tracks time, never file contents or prompts.</p>
+                <p className="mt-4 flex flex-wrap items-center gap-x-1.5 text-sm text-muted">
+                  Developed with
+                  <span role="img" aria-label="love" className="text-[13px]">❤️</span>
+                  by
+                  <a
+                    href={`https://x.com/${AUTHOR.x}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 font-medium text-text underline-offset-4 hover:underline"
+                  >
+                    {AUTHOR.name}
+                    <span className="ml-1 inline-flex items-center gap-1 font-normal text-muted">
+                      <XMark size={11} />@{AUTHOR.x}
+                    </span>
+                  </a>
+                </p>
               </div>
               <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted">
                 <Link href="/privacy" className="hover:text-text">Privacy</Link>

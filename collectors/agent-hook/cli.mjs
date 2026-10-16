@@ -17,7 +17,7 @@ import { apply, writeEmberConfig } from './install.mjs';
 
 // Public server and Marketplace id. Change DEFAULT_API_URL before publishing.
 export const DEFAULT_API_URL = process.env.EMBER_DEFAULT_API_URL || 'https://ember-dev.vercel.app';
-export const EXTENSION_ID = 'ember-dev.ember';
+export const EXTENSION_ID = 'ember-dev.embertime';
 const KEY_RE = /^ember_[0-9a-f]{40}$/i;
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PAYLOAD = ['ember-hook.mjs', 'install.mjs', 'package.json'];
@@ -185,8 +185,7 @@ const HELP = `embertime: track coding time across editors and AI agents
   npx embertime uninstall [--purge]
 
 setup finds VS Code, Cursor, Windsurf, VSCodium, Claude Code, Codex and Cursor's
-agent on this
-machine and connects each one. Re-running it is safe.`;
+agent on this machine and connects each one. Re-running it is safe.`;
 
 const o = parse(process.argv.slice(2));
 const cmd = o._[0];

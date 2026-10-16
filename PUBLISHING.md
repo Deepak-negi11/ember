@@ -6,7 +6,7 @@ Goal: anyone can run one command and every editor and agent on their machine is 
 npx embertime setup --key ember_...
 ```
 
-That command installs the extension from the stores (`ember-dev.ember`) and the
+That command installs the extension from the stores (`ember-dev.embertime`) and the
 Claude Code / Codex hooks. For that to work, four things must be public. Each
 needs an account that only you can create.
 

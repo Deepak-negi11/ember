@@ -6,7 +6,7 @@ import { Key } from "@phosphor-icons/react";
 import { CopyButton } from "./forms.tsx";
 
 const DEFAULT_API = "https://ember-dev.vercel.app";
-const EXTENSION_ID = "ember-dev.ember";
+const EXTENSION_ID = "ember-dev.embertime";
 const EXTENSION_NAME = "Ember: Coding Time Tracker";
 
 type Step = { text: React.ReactNode; cmd?: string };

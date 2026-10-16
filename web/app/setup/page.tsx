@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 };
 
 const DEFAULT_API = "https://ember-dev.vercel.app";
-const EXTENSION = "ember-dev.ember";
+const EXTENSION = "ember-dev.embertime";
 
 function Cmd({ children }: { children: string }) {
   return (

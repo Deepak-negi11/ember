@@ -1,5 +1,5 @@
 {
   "name": "ember",
   "description": "Ember coding-time tracker: records Claude Code sessions, prompts and file edits as anonymised Ember heartbeats (no prompt text, file contents or paths are sent).",
-  "version": "0.1.0"
+  "version": "0.1.1"
 }
