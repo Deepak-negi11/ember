@@ -64,10 +64,14 @@ export default async function Leaderboard({ searchParams }: Props) {
       </div>
 
       {(sp.welcome || (!apiKey && !onBoard)) && (
-        <div className="rise mb-8 flex flex-col gap-4 rounded-3xl border border-accent/30 bg-accent-soft p-6 sm:flex-row sm:items-center sm:justify-between">
+        <div className="rise mb-8 flex flex-col gap-4 rounded-3xl border border-line bg-surface-2/70 p-6 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="font-display text-xl font-medium tracking-tight">{sp.welcome ? `Welcome to Ember, ${me.display_name.split(" ")[0]}.` : "You're not on the board yet."}</p>
-            <p className="mt-1 text-muted">Create your API key and connect your editor. It takes about two minutes, then your time shows up here.</p>
+            <p className="mt-1 text-muted">
+              {apiKey
+                ? "Your key is ready. Connect your editor and your time shows up here after a few minutes of coding."
+                : "Create your API key and connect your editor. It takes about two minutes, then your time shows up here."}
+            </p>
           </div>
           <div className="flex shrink-0 gap-2">
             <Link href="/settings#api-key" className={btn.primary}>{apiKey ? "View my key" : "Create API key"}</Link>
@@ -99,8 +103,14 @@ export default async function Leaderboard({ searchParams }: Props) {
       {rows.length === 0 ? (
         <Card className="p-10 text-center">
           <p className="text-lg font-medium">Nobody has tracked {lang ?? "time"} {period.label} yet.</p>
-          <p className="mt-2 text-muted">Install a collector and the first spot is yours.</p>
-          <Link href="/setup" className="mt-5 inline-block font-medium text-accent-text hover:underline">Setup guide</Link>
+          {apiKey ? (
+            <p className="mt-2 text-muted">You&apos;re set up. Write some code and the first spot is yours.</p>
+          ) : (
+            <>
+              <p className="mt-2 text-muted">Install a collector and the first spot is yours.</p>
+              <Link href="/setup" className="mt-5 inline-block font-medium text-accent-text hover:underline">Setup guide</Link>
+            </>
+          )}
         </Card>
       ) : (
         <>

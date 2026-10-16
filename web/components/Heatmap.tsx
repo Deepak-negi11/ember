@@ -130,7 +130,7 @@ export function Heatmap({ cells, end, compact = false }: { cells: HeatCell[]; en
       </div>
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-muted">
-        <span>Counted when heartbeats are less than 15 minutes apart.</span>
+        <span>Counts time spent writing code, with breaks under 15 minutes.</span>
         <span className="flex items-center gap-1.5" aria-label="Legend: less than 30 minutes to more than 4 hours">
           Less
           {[0, 1, 2, 3, 4].map((l) => (

@@ -96,7 +96,7 @@ export function SetupTabs({ origin, keyHint }: { origin: string; keyHint?: strin
           {
             text: (
               <>
-                Open the Extensions view (<Kbd>⇧⌘X</Kbd> / <Kbd>Ctrl+Shift+X</Kbd>), search <b>Ember</b> and install <b>{EXTENSION_NAME}</b>. Works in VS Code, Cursor and Windsurf. Or from a terminal:
+                Open the Extensions view (<Kbd>⇧⌘X</Kbd> / <Kbd>Ctrl+Shift+X</Kbd>), search <b>embertime</b> and install <b>{EXTENSION_NAME}</b>. Works in VS Code, Cursor and Windsurf. Or from a terminal:
               </>
             ),
             cmd: `code --install-extension ${EXTENSION_ID}\ncursor --install-extension ${EXTENSION_ID}`,

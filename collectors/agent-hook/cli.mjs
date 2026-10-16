@@ -14,6 +14,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { apply, writeEmberConfig } from './install.mjs';
+import { EDITORS, findEditor, runEditor } from './editors.mjs';
 
 // Public server and Marketplace id. Change DEFAULT_API_URL before publishing.
 export const DEFAULT_API_URL = process.env.EMBER_DEFAULT_API_URL || 'https://ember-dev.vercel.app';
@@ -21,12 +22,6 @@ export const EXTENSION_ID = 'ember-dev.embertime';
 const KEY_RE = /^ember_[0-9a-f]{40}$/i;
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PAYLOAD = ['ember-hook.mjs', 'install.mjs', 'package.json'];
-const EDITORS = [
-  { cli: 'code', name: 'VS Code' },
-  { cli: 'cursor', name: 'Cursor' },
-  { cli: 'windsurf', name: 'Windsurf' },
-  { cli: 'codium', name: 'VSCodium' },
-];
 
 const env = process.env;
 const home = () => env.HOME || os.homedir();
@@ -35,6 +30,11 @@ const emberHome = () => env.EMBER_HOME || path.join(home(), '.ember');
 const c = process.stdout.isTTY && !env.NO_COLOR
   ? { ok: (s) => `\x1b[32m${s}\x1b[0m`, dim: (s) => `\x1b[2m${s}\x1b[0m`, warn: (s) => `\x1b[33m${s}\x1b[0m`, bold: (s) => `\x1b[1m${s}\x1b[0m` }
   : { ok: (s) => s, dim: (s) => s, warn: (s) => s, bold: (s) => s };
+
+/** Each installed editor with the command that launches it. */
+function installedEditors() {
+  return EDITORS.map((e) => ({ ...e, command: findEditor(e, { home: home(), localAppData: env.LOCALAPPDATA || '' }) })).filter((e) => e.command);
+}
 
 function onPath(cmd) {
   const r = spawnSync(process.platform === 'win32' ? 'where' : 'which', [cmd], { encoding: 'utf8' });
@@ -121,10 +121,14 @@ async function setup(o) {
   }
 
   if (!o.skipEditors) {
-    for (const e of EDITORS) {
-      if (!onPath(e.cli)) continue;
-      const r = spawnSync(e.cli, ['--install-extension', o.vsix || EXTENSION_ID, '--force'], { encoding: 'utf8' });
-      results.push([e.name, r.status === 0 ? 'extension installed' : `install failed: ${(r.stderr || r.stdout).trim().split('\n').pop()}`, r.status === 0]);
+    const editors = installedEditors();
+    for (const e of editors) {
+      const r = runEditor(e.command, ['--install-extension', o.vsix || EXTENSION_ID, '--force']);
+      const why = (r.stderr || r.stdout || r.error?.message || '').trim().split('\n').pop();
+      results.push([e.name, r.status === 0 ? 'extension installed (restart the editor)' : `install failed: ${why}`, r.status === 0]);
+    }
+    if (editors.length === 0) {
+      results.push(['Editors', 'none found. In VS Code, Cursor or Windsurf, open Extensions, search "embertime" and install it']);
     }
   }
 
@@ -136,28 +140,33 @@ async function setup(o) {
 
 async function status() {
   const cfg = readConfig();
-  console.log(`config   ${cfg.api_key ? `key …${cfg.api_key.slice(-4)}, server ${cfg.api_url}` : 'no key (run setup)'}`);
+  console.log(`${'Config'.padEnd(13)}${cfg.api_key ? `key …${cfg.api_key.slice(-4)}, server ${cfg.api_url}` : 'no key (run setup)'}`);
   for (const [label, file] of [
-    ['claude', path.join(home(), '.claude', 'settings.json')],
-    ['codex', path.join(env.CODEX_HOME || path.join(home(), '.codex'), 'hooks.json')],
-    ['cursor', path.join(home(), '.cursor', 'hooks.json')],
+    ['Claude Code', path.join(home(), '.claude', 'settings.json')],
+    ['Codex', path.join(env.CODEX_HOME || path.join(home(), '.codex'), 'hooks.json')],
+    ['Cursor Agent', path.join(home(), '.cursor', 'hooks.json')],
   ]) {
     let on = false;
     try { on = fs.readFileSync(file, 'utf8').includes('ember-hook.mjs'); } catch { /* missing */ }
-    console.log(`${label.padEnd(8)} ${on ? 'hooks installed' : 'not connected'}`);
+    console.log(`${label.padEnd(13)}${on ? 'hooks installed' : 'not connected'}`);
+  }
+  for (const e of installedEditors()) {
+    const r = runEditor(e.command, ['--list-extensions']);
+    const on = r.status === 0 && r.stdout.toLowerCase().split(/\r?\n/).includes(EXTENSION_ID);
+    console.log(`${e.name.padEnd(13)}${on ? 'extension installed' : 'extension missing (run setup)'}`);
   }
   const q = path.join(emberHome(), 'queue.jsonl');
   const queued = fs.existsSync(q) ? fs.readFileSync(q, 'utf8').split('\n').filter(Boolean).length : 0;
-  console.log(`queue    ${queued} heartbeat(s) waiting`);
+  console.log(`${'Queue'.padEnd(13)}${queued} heartbeat(s) waiting`);
   const err = path.join(emberHome(), 'last_error');
-  if (fs.existsSync(err)) console.log(`error    ${fs.readFileSync(err, 'utf8').trim()}`);
+  if (fs.existsSync(err)) console.log(`${'Last error'.padEnd(13)}${fs.readFileSync(err, 'utf8').trim()}`);
   if (cfg.api_key) {
     try {
       const res = await fetch(`${cfg.api_url}/api/v1/me/today`, { headers: { Authorization: `Bearer ${cfg.api_key}` }, signal: AbortSignal.timeout(6000) });
       const body = res.ok ? await res.json() : null;
-      console.log(`server   ${body ? `today ${body.text} as @${body.username}` : `HTTP ${res.status}`}`);
+      console.log(`${'Server'.padEnd(13)}${body ? `today ${body.text} as @${body.username}` : `HTTP ${res.status}`}`);
     } catch {
-      console.log('server   unreachable');
+      console.log(`${'Server'.padEnd(13)}unreachable`);
     }
   }
 }
@@ -171,7 +180,10 @@ function uninstall(o) {
       console.log(`${t.padEnd(8)} skipped: ${e.message}`);
     }
   }
-  for (const e of EDITORS) if (onPath(e.cli)) spawnSync(e.cli, ['--uninstall-extension', EXTENSION_ID], { stdio: 'ignore' });
+  for (const e of installedEditors()) {
+    const r = runEditor(e.command, ['--uninstall-extension', EXTENSION_ID]);
+    console.log(`${e.name.padEnd(13)}${r.status === 0 ? 'extension removed' : 'extension not installed'}`);
+  }
   if (o.purge) {
     fs.rmSync(emberHome(), { recursive: true, force: true });
     console.log(`removed  ${emberHome()}`);

@@ -43,7 +43,7 @@ export default async function Settings({ searchParams }: { searchParams: Promise
       </div>
 
       {sp.welcome && (
-        <div className="rise rounded-3xl border border-accent/30 bg-accent-soft p-6">
+        <div className="rise rounded-3xl border border-line bg-surface-2/70 p-6">
           <p className="font-display text-xl font-medium tracking-tight">Welcome to Ember, {user.display_name.split(" ")[0]}.</p>
           <p className="mt-1 text-muted">Create your API key below and connect an editor. Your heatmap starts with the first heartbeat.</p>
         </div>

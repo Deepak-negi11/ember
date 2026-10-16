@@ -21,8 +21,8 @@ export class HeartbeatGate {
   private lastFile: string | undefined;
   private lastTime = 0;
 
-  shouldSend(file: string, nowSeconds: number, isWrite: boolean): boolean {
-    if (isWrite) return true;
+  shouldSend(file: string, nowSeconds: number, isSave: boolean): boolean {
+    if (isSave) return true;
     if (file !== this.lastFile) return true;
     return nowSeconds - this.lastTime >= SAME_FILE_INTERVAL_S;
   }

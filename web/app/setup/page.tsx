@@ -133,7 +133,7 @@ export default async function Setup() {
           <Section id="vscode" icon={<Code size={20} weight="bold" />} title="VS Code" kind="Editor">
             <Steps>
               <Step>
-                Open the Extensions view (<Kbd>⇧⌘X</Kbd> on Mac, <Kbd>Ctrl+Shift+X</Kbd> on Windows/Linux), search <b>Ember</b> and install <b>Ember: Coding Time Tracker</b>. Or from a terminal:
+                Open the Extensions view (<Kbd>⇧⌘X</Kbd> on Mac, <Kbd>Ctrl+Shift+X</Kbd> on Windows/Linux), search <b>embertime</b> and install <b>Ember: Coding Time Tracker</b>. Or from a terminal:
                 <Cmd>{`code --install-extension ${EXTENSION}`}</Cmd>
               </Step>
               <Step>
@@ -146,7 +146,7 @@ export default async function Setup() {
           <Section id="cursor" icon={<CursorMark size={18} />} title="Cursor" kind="Editor">
             <Steps>
               <Step>
-                In Cursor, open Extensions (<Kbd>⇧⌘X</Kbd>), search <b>Ember</b> and install it. Cursor gets it from Open VSX. Or:
+                In Cursor, open Extensions (<Kbd>⇧⌘X</Kbd>), search <b>embertime</b> and install it. Cursor gets it from Open VSX. Or:
                 <Cmd>{`cursor --install-extension ${EXTENSION}`}</Cmd>
               </Step>
               <Step>Run <b>Ember: Set API Key</b> from the command palette and paste your key.</Step>
@@ -159,7 +159,7 @@ export default async function Setup() {
           <Section id="windsurf" icon={<WindsurfMark size={18} />} title="Windsurf" kind="Editor">
             <Steps>
               <Step>
-                Open Extensions, search <b>Ember</b> and install it. Or:
+                Open Extensions, search <b>embertime</b> and install it. Or:
                 <Cmd>{`windsurf --install-extension ${EXTENSION}`}</Cmd>
               </Step>
               <Step>Run <b>Ember: Set API Key</b> from the command palette and paste your key.</Step>

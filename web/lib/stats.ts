@@ -57,7 +57,9 @@ export async function ingest(userId: number, tz: string, beats: ParsedHeartbeat[
 
 export async function recomputeDay(q: Q, userId: number, date: string, tz: string) {
   const beats = await q.all<Beat>(
-    "SELECT time, project, language, editor, category FROM heartbeats WHERE user_id = ? AND local_date = ? ORDER BY time",
+    // Only heartbeats from writing code count (typing, saving, an agent editing a file).
+    // Older collectors also sent file switches and agent prompts; those are stored but ignored.
+    "SELECT time, project, language, editor, category FROM heartbeats WHERE user_id = ? AND local_date = ? AND is_write = 1 ORDER BY time",
     userId, date,
   );
   const d = computeDurations(beats, undefined, tz);
@@ -400,7 +402,7 @@ export async function leaderboard24h(limit = 100, opts: { offsetHours?: number; 
 
   const end = now - (opts.offsetHours ?? 0) * 3600;
   const beats = await all<Beat & { user_id: number }>(
-    "SELECT user_id, time, project, language, editor, category FROM heartbeats WHERE time >= ? AND time < ? ORDER BY user_id, time",
+    "SELECT user_id, time, project, language, editor, category FROM heartbeats WHERE time >= ? AND time < ? AND is_write = 1 ORDER BY user_id, time",
     end - 86400, end,
   );
   const byUser = new Map<number, Beat[]>();

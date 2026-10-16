@@ -71,13 +71,16 @@ test("ingest is idempotent and feeds summary, leaderboard and hours", async () =
   await run("INSERT INTO users (username, display_name, created_at) VALUES ('ana','Ana',0)");
   const uid = (await get<{ id: number }>("SELECT id FROM users WHERE username='ana'"))!.id;
   const now = Math.floor(Date.now() / 1000);
-  const batch = [0, 60, 120, 180].map((o) => parseHeartbeat({ time: now - 600 + o, project: "ember", language: "Rust", editor: "vscode", category: "coding", stack: ["Rust"] }, now)!);
+  const batch = [0, 60, 120, 180].map((o) => parseHeartbeat({ time: now - 600 + o, project: "ember", language: "Rust", editor: "vscode", category: "coding", is_write: true, stack: ["Rust"] }, now)!);
 
   assert.deepEqual(await ingest(uid, "UTC", batch), { accepted: 4, duplicates: 0 });
   assert.deepEqual(await ingest(uid, "UTC", batch), { accepted: 0, duplicates: 4 });
   // A batch that mixes a retried beat with a new one only counts the new one.
-  const mixed = [batch[3], parseHeartbeat({ time: now - 600 + 240, project: "ember", language: "Rust", editor: "vscode", category: "coding" }, now)!];
+  const mixed = [batch[3], parseHeartbeat({ time: now - 600 + 240, project: "ember", language: "Rust", editor: "vscode", category: "coding", is_write: true }, now)!];
   assert.deepEqual(await ingest(uid, "UTC", mixed), { accepted: 1, duplicates: 1 });
+  // Activity without writing (file switches, an agent session that only reads) is stored but adds no time.
+  const idle = [300, 360, 420].map((o) => parseHeartbeat({ time: now - 600 + o, project: "ember", language: "Rust", editor: "claude-code", category: "ai" }, now)!);
+  assert.deepEqual(await ingest(uid, "UTC", idle), { accepted: 3, duplicates: 0 });
 
   const s = await summary(uid, "UTC");
   assert.equal(s.week, 240);

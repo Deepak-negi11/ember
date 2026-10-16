@@ -22,7 +22,7 @@ import { StackCache } from './stack';
 import { HeartbeatGate, detectEditor } from './tracker';
 import type { Editor, Heartbeat, Today } from './types';
 
-const VERSION = '0.1.0';
+const VERSION = '0.1.1';
 const SECRET_KEY = 'ember.apiKey';
 const QUEUE_STATE_KEY = 'ember.queue';
 const FLUSH_INTERVAL_MS = 30_000;
@@ -80,14 +80,14 @@ class Ember implements vscode.Disposable {
       vscode.commands.registerCommand('ember.showStatus', () => this.showStatus()),
       ws.onDidChangeTextDocument((e) =>
         this.safe(() => {
-          // Only edits in the focused editor count; background changes (git checkout,
+          // Only typing in the focused editor counts; background changes (git checkout,
           // formatters in other files, agents) are ignored.
           if (e.contentChanges.length && e.document === w.activeTextEditor?.document) this.onActivity(e.document, false);
         }),
       ),
+      // Saving counts too. Opening, switching or scrolling through files does not:
+      // only writing code is tracked.
       ws.onDidSaveTextDocument((doc) => this.safe(() => this.onActivity(doc, true))),
-      w.onDidChangeActiveTextEditor((ed) => this.safe(() => ed && this.onActivity(ed.document, false))),
-      w.onDidChangeTextEditorSelection((e) => this.safe(() => this.onActivity(e.textEditor.document, false))),
       this.context.secrets.onDidChange((e) => this.safe(() => e.key === SECRET_KEY && this.refreshToday())),
       ws.onDidChangeConfiguration((e) => this.safe(() => e.affectsConfiguration('ember.apiUrl') && this.refreshToday())),
     );
@@ -136,16 +136,17 @@ class Ember implements vscode.Disposable {
 
   // ---- tracking -----------------------------------------------------------
 
-  private onActivity(doc: vscode.TextDocument, isWrite: boolean): void {
+  /** An edit or a save. Saves always send; edits are throttled per file by the gate. */
+  private onActivity(doc: vscode.TextDocument, isSave: boolean): void {
     if (doc.uri.scheme !== 'file' || doc.isUntitled) return; // skips output panels, git:, untitled, etc.
     const file = doc.uri.fsPath;
     const now = Date.now() / 1000;
-    if (!this.gate.shouldSend(file, now, isWrite)) return;
+    if (!this.gate.shouldSend(file, now, isSave)) return;
     this.gate.record(file, now);
-    this.queue.enqueue(this.buildHeartbeat(doc, file, now, isWrite));
+    this.queue.enqueue(this.buildHeartbeat(doc, file, now));
   }
 
-  private buildHeartbeat(doc: vscode.TextDocument, file: string, now: number, isWrite: boolean): Heartbeat {
+  private buildHeartbeat(doc: vscode.TextDocument, file: string, now: number): Heartbeat {
     const folder = vscode.workspace.getWorkspaceFolder(doc.uri);
     const gitRoot = this.gitRoot(path.dirname(file));
     const project = path.basename(gitRoot ?? folder?.uri.fsPath ?? path.dirname(file));
@@ -154,7 +155,8 @@ class Ember implements vscode.Disposable {
       project,
       editor: this.editor,
       category: 'coding',
-      is_write: isWrite,
+      // Every heartbeat comes from writing code; the server only counts these.
+      is_write: true,
       entity: crypto.createHash('sha1').update(file).digest('hex'),
     };
     const language = languageName(doc.languageId);

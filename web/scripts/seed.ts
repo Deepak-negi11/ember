@@ -78,7 +78,7 @@ function beatsForDay(p: Persona, dayStart: number, now: number): ParsedHeartbeat
     while (t < stop && t < now) {
       const hb = parseHeartbeat({
         time: t, project: proj.name, language: pick(proj.langs), editor: ai ? pick(AGENTS) : editor,
-        category: ai ? "ai" : "coding", stack: proj.stack, branch: "main", is_write: rand() < 0.3,
+        category: ai ? "ai" : "coding", stack: proj.stack, branch: "main", is_write: true,
       }, now);
       if (hb) out.push(hb);
       t += 60 + rand() * 240;

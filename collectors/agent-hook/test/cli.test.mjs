@@ -32,7 +32,7 @@ function setup(serverUrl) {
   return { home, env };
 }
 
-test('claude-code payload on stdin is sent; stdout stays empty; exit 0', async (t) => {
+test('claude-code file edit on stdin is sent; stdout stays empty; exit 0', async (t) => {
   const server = await startServer(() => [202, { accepted: 1, duplicates: 0 }]);
   t.after(server.close);
   const { env } = setup(server.url);
@@ -41,8 +41,9 @@ test('claude-code payload on stdin is sent; stdout stays empty; exit 0', async (
     session_id: 'abc',
     transcript_path: '/tmp/t.jsonl',
     cwd: repo,
-    hook_event_name: 'UserPromptSubmit',
-    prompt: 'TOP SECRET PROMPT',
+    hook_event_name: 'PostToolUse',
+    tool_name: 'Edit',
+    tool_input: { file_path: 'src/app.ts', old_string: 'TOP SECRET OLD', new_string: 'TOP SECRET NEW' },
   };
   const r = await runHook(['--agent', 'claude-code'], { env, stdin: JSON.stringify(payload) });
   assert.equal(r.code, 0);
@@ -53,10 +54,32 @@ test('claude-code payload on stdin is sent; stdout stays empty; exit 0', async (
   assert.equal(h.project, 'demo');
   assert.equal(h.branch, 'dev');
   assert.equal(h.category, 'ai');
+  assert.equal(h.is_write, true);
+  assert.equal(h.language, 'TypeScript');
   assert.ok(!server.requests[0].raw.includes('TOP SECRET'));
+  assert.ok(!server.requests[0].raw.includes('src/app.ts'));
 });
 
-test('codex payload + PostToolUse throttling (30s) but not for session events', async (t) => {
+test('opening a session, prompting or reading files sends no time', async (t) => {
+  const server = await startServer(() => [202, { accepted: 1, duplicates: 0 }]);
+  t.after(server.close);
+  const { env } = setup(server.url);
+  const cwd = makeRepo(path.join(tmpDir(), 'idle'));
+  for (const payload of [
+    { cwd, hook_event_name: 'SessionStart' },
+    { cwd, hook_event_name: 'UserPromptSubmit', prompt: 'TOP SECRET PROMPT' },
+    { cwd, hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: { file_path: 'a.ts' } },
+    { cwd, hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'ls' } },
+    { cwd, hook_event_name: 'Stop' },
+  ]) {
+    const r = await runHook(['--agent', 'claude-code'], { env, stdin: JSON.stringify(payload) });
+    assert.equal(r.code, 0);
+  }
+  assert.equal(server.requests.length, 0);
+  assert.ok(!fs.existsSync(path.join(env.EMBER_HOME, 'queue.jsonl')) || fs.readFileSync(path.join(env.EMBER_HOME, 'queue.jsonl'), 'utf8').trim() === '');
+});
+
+test('codex edits are throttled to one per 30s; session events add nothing', async (t) => {
   const server = await startServer(() => [202, { accepted: 1, duplicates: 0 }]);
   t.after(server.close);
   const { env } = setup(server.url);
@@ -69,7 +92,7 @@ test('codex payload + PostToolUse throttling (30s) but not for session events', 
   await runHook(['--agent', 'codex'], { env, stdin: JSON.stringify({ ...post, hook_event_name: 'SessionEnd', tool_name: undefined, tool_input: undefined }) });
 
   const sent = server.requests.flatMap((r) => r.body.heartbeats);
-  assert.equal(sent.length, 3);
+  assert.equal(sent.length, 1);
   assert.equal(sent[0].language, 'Go');
   assert.equal(sent[0].is_write, true);
   assert.ok(sent.every((h) => h.editor === 'codex'));
@@ -77,7 +100,8 @@ test('codex payload + PostToolUse throttling (30s) but not for session events', 
 
 test('server down: hook still exits 0 quickly and queues the heartbeat', async () => {
   const { env } = setup('http://127.0.0.1:9');
-  const r = await runHook(['--agent', 'claude-code'], { env, stdin: JSON.stringify({ cwd: tmpDir(), hook_event_name: 'Stop' }) });
+  const edit = { cwd: tmpDir(), hook_event_name: 'PostToolUse', tool_name: 'Write', tool_input: { file_path: 'x.py' } };
+  const r = await runHook(['--agent', 'claude-code'], { env, stdin: JSON.stringify(edit) });
   assert.equal(r.code, 0);
   assert.equal(r.stdout, '');
   assert.ok(r.ms < 4000, `took ${r.ms}ms`);
@@ -105,7 +129,7 @@ test('EMBER_API_URL / EMBER_API_KEY env overrides win over config.json', async (
   const key2 = `ember_${'b2'.repeat(20)}`;
   const r = await runHook(['--agent', 'claude-code'], {
     env: { ...env, EMBER_API_URL: server.url, EMBER_API_KEY: key2 },
-    stdin: JSON.stringify({ cwd: tmpDir(), hook_event_name: 'SessionStart' }),
+    stdin: JSON.stringify({ cwd: tmpDir(), hook_event_name: 'PostToolUse', tool_name: 'Edit', tool_input: { file_path: 'y.rs' } }),
   });
   assert.equal(r.code, 0);
   assert.equal(server.requests.length, 1);

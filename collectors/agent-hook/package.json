@@ -1,6 +1,6 @@
 {
   "name": "embertime",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "description": "Connect VS Code, Cursor, Windsurf, Claude Code and Codex to Ember in one command. Tracks coding time, never code or prompts.",
   "type": "module",
   "bin": {
@@ -8,6 +8,7 @@
   },
   "files": [
     "cli.mjs",
+    "editors.mjs",
     "ember-hook.mjs",
     "install.mjs",
     "hooks",

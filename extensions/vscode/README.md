@@ -1,18 +1,27 @@
 # Ember - Coding Time Tracker
 
-Tracks your coding time and sends it to your Ember server. It works without
-changes in **VS Code, Cursor, Windsurf and VSCodium**. The editor is detected
-automatically.
+Tracks your coding time in **VS Code, Cursor, Windsurf and VSCodium** and turns
+it into a yearly heatmap, language and project stats, and a developer
+leaderboard on [Ember](https://ember-dev.vercel.app). Your code, file contents
+and file paths are never sent.
 
 ## Setup
 
-1. Install the `.vsix`: open the Extensions view, then `...` > *Install from VSIX...*.
-2. Run **Ember: Set API Key** from the Command Palette and paste the key from your dashboard.
-   The key goes into the editor's SecretStorage and is also written to
-   `~/.ember/config.json` (mode 0600). The Claude Code / Codex hook reads that
-   file too, so you only set the key once.
-3. If your server is not at `http://localhost:3000`, set **`ember.apiUrl`** in your
-   user settings. If you leave it unset, `api_url` from `~/.ember/config.json` is used.
+1. Sign in at [ember-dev.vercel.app](https://ember-dev.vercel.app) with GitHub or
+   Google and create an API key in **Settings**.
+2. Connect the key, one of two ways:
+   - **Everything at once (recommended):** run
+     `npm install -g embertime` and then `embertime setup --key ember_...`.
+     This also connects Claude Code, Codex and Cursor Agent, and the
+     extension picks the key up automatically.
+   - **Just this editor:** run **Ember: Set API Key** from the Command Palette
+     and paste the key.
+3. Restart the editor and start coding. Your time shows up in the status bar
+   and on your dashboard within a couple of minutes.
+
+The key is stored in the editor's SecretStorage and in `~/.ember/config.json`
+(readable only by you), so every editor and agent on the machine shares it.
+Self-hosting? Set **`ember.apiUrl`** in your user settings.
 
 The status bar shows a flame icon with today's total (e.g. `2h 14m`). Click it to open the
 dashboard. The tooltip shows the last sync result.
@@ -27,8 +36,9 @@ dashboard. The tooltip shows the last sync result.
 
 ## What is sent
 
-A heartbeat goes out when you switch files, when you keep working in the same
-file for 2 minutes or more, or when you save (`is_write: true`). It contains the
+Only writing code counts. A heartbeat goes out when you type in a file (at most
+once every 2 minutes per file) or save it. Opening, switching between or
+scrolling through files sends nothing, so an editor left open adds no time. It contains the
 time, the project (git root folder name), the branch, the language, the editor,
 the detected tech stack (e.g. `Next.js, React, Tailwind CSS, TypeScript`) and
 `sha1(absolute file path)`. File contents and file paths are never sent. Only

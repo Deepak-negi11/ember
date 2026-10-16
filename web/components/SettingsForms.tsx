@@ -1,7 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
-import { Key } from "@phosphor-icons/react";
+import { useActionState, useState } from "react";
+import { Key, Terminal } from "@phosphor-icons/react";
 import { regenerateKey, updateProfile, type FormState } from "@/app/actions.ts";
 import { CopyButton, Field, FormMessage, inputCls, Submit } from "./forms.tsx";
 
@@ -71,20 +71,36 @@ export function ProfileForm({ user, zones, xHandle, githubHandle }: { user: Prof
 
 export function ApiKeyPanel({ hint, lastUsed }: { hint: string | null; lastUsed: string | null }) {
   const [state, action] = useActionState<FormState, FormData>(regenerateKey, undefined);
+  // Remember whether a key existed before this visit, to explain that it was replaced.
+  const [hadKey] = useState(Boolean(hint));
   const key = state?.key;
+  const command = key ? `embertime setup --key ${key}` : "";
   return (
     <div className="grid gap-4">
       {key ? (
-        <div className="rise grid gap-3 rounded-2xl border border-line-strong bg-surface-2 p-4">
-          <div className="flex items-center gap-2 text-sm">
-            <Key size={16} className="text-muted" />
+        <div className="rise grid gap-4 rounded-2xl border border-line-strong bg-surface-2 p-4">
+          <div className="flex items-start gap-2 text-sm">
+            <Key size={16} className="mt-0.5 shrink-0 text-muted" />
             <span>
-              <span className="font-medium">Your new key.</span> <span className="text-muted">Copy it now; for security it&apos;s only shown once.</span>
+              <span className="font-medium">Your new key.</span>{" "}
+              <span className="text-muted">
+                Copy it now; for security it&apos;s only shown once.{hadKey ? " Your previous key no longer works." : ""}
+              </span>
             </span>
           </div>
           <div className="flex items-center gap-2">
             <code className="num min-w-0 flex-1 truncate rounded-xl border border-line bg-surface px-3 py-2 text-sm">{key}</code>
             <CopyButton text={key} />
+          </div>
+          <div className="grid gap-2 border-t border-line pt-4">
+            <p className="flex items-center gap-2 text-sm text-muted">
+              <Terminal size={16} className="shrink-0" />
+              {hadKey ? "Run this once to switch every editor and agent to the new key:" : "Run this once to connect every editor and agent:"}
+            </p>
+            <div className="flex items-center gap-2">
+              <code className="num min-w-0 flex-1 truncate rounded-xl border border-line bg-surface px-3 py-2 text-sm">{command}</code>
+              <CopyButton text={command} />
+            </div>
           </div>
         </div>
       ) : (
@@ -102,13 +118,9 @@ export function ApiKeyPanel({ hint, lastUsed }: { hint: string | null; lastUsed:
           </div>
         </div>
       )}
-      <form
-        action={action}
-        onSubmit={(e) => {
-          if (hint && !confirm("Create a new key? The current key stops working everywhere it is installed.")) e.preventDefault();
-        }}
-      >
+      <form action={action} className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <Submit>{hint ? "Regenerate key" : "Create API key"}</Submit>
+        {hint && !key && <p className="text-sm text-muted">Regenerating replaces your current key right away.</p>}
       </form>
     </div>
   );

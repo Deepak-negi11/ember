@@ -75,7 +75,7 @@ Claude Code plugin option and manual JSON.
 ## Try it on your own machine before publishing
 
 Until `embertime` is on npm and the extension is on the Marketplace / Open VSX,
-the public commands (`npm install -g embertime`, "search Ember in Extensions")
+the public commands (`npm install -g embertime`, "search embertime in Extensions")
 return 404. Install both from this repo instead:
 
 ```bash
@@ -89,9 +89,11 @@ After publishing (see PUBLISHING.md) nobody needs these: users run
 
 ## How time is counted
 
-- Every collector sends heartbeats (project, language, branch, editor, category,
-  timestamp). Editors send when you switch files, save, or keep editing the same file
-  for 2 minutes; agents send on session start, prompt, tool use and stop.
+- Only writing code counts. Editors send a heartbeat when you type in a file (at most
+  once every 2 minutes per file) or save it; agents send one when they change a file
+  (Write, Edit, MultiEdit, apply_patch, Cursor's file edits). Opening an editor,
+  switching files, starting an agent session, prompting or reading files adds no time,
+  and the server ignores any non-writing heartbeat from older collectors.
 - All heartbeats for a day are merged into **one timeline**. Each gap between two
   consecutive heartbeats is credited to the earlier one, if it is under 15 minutes.
   Merging first means Cursor and Claude Code running at the same time are never

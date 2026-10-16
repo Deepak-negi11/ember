@@ -5,7 +5,8 @@ Cursor Agent** with one command. Your time shows up on
 [Ember](https://ember-dev.vercel.app) as a yearly heatmap, language stats and a
 developer leaderboard.
 
-Ember records **when** and **in which project** you code. It never sends your
+Ember records **when** and **in which project** you write code. Only writing counts:
+an editor or agent that is just open adds no time. It never sends your
 code, file contents, file paths or AI prompts.
 
 ## Setup
