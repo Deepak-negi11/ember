@@ -89,7 +89,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
               Full leaderboard <ArrowRight size={14} />
             </Link>
           </div>
-          <LeaderRows rows={shown} meId={user.id} max={board[0].seconds || 1} gapBefore={mineIdx > 4 ? mineIdx + 1 : undefined} prevRanks={prev} />
+          <LeaderRows rows={shown} meId={user.id} gapBefore={mineIdx > 4 ? mineIdx + 1 : undefined} prevRanks={prev} />
         </section>
       )}
 

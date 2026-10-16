@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CheckCircle, GithubLogo, GoogleLogo, XLogo } from "@phosphor-icons/react/ssr";
 import { apiKeyInfo, currentUser } from "@/lib/auth.ts";
@@ -35,10 +34,7 @@ export default async function Settings({ searchParams }: { searchParams: Promise
       <div className="rise flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-4xl font-medium tracking-tight sm:text-5xl">Settings</h1>
-          <p className="mt-1 text-muted">
-            {user.email ? <>Signed in as {user.email}. </> : null}Public profile at{" "}
-            <Link href={`/u/${user.username}`} className="font-medium text-accent-text hover:underline">/u/{user.username}</Link>
-          </p>
+          {user.email ? <p className="mt-1 text-muted">Signed in as {user.email}</p> : null}
         </div>
       </div>
 

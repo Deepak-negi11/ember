@@ -35,7 +35,6 @@ export default async function Leaderboard({ searchParams }: Props) {
     apiKeyInfo(me.id),
   ]);
   const onBoard = rows.some((r) => r.user_id === me.id);
-  const max = rows[0]?.seconds ?? 1;
   const href = (range: string, language?: string) =>
     `/leaderboard?${new URLSearchParams({ ...(range !== "7d" ? { range } : {}), ...(language ? { lang: language } : {}) })}`.replace(/\?$/, "");
 
@@ -116,7 +115,7 @@ export default async function Leaderboard({ searchParams }: Props) {
         <>
           {!lang && <Champion row={rows[0]} period={period.label} />}
           <div className={lang ? "" : "mt-6"}>
-            <LeaderRows rows={rows} meId={me?.id} max={max} prevRanks={prev} language={lang} />
+            <LeaderRows rows={rows} meId={me?.id} prevRanks={prev} language={lang} />
           </div>
         </>
       )}

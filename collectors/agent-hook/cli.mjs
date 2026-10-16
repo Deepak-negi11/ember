@@ -193,6 +193,7 @@ function uninstall(o) {
 const HELP = `embertime: track coding time across editors and AI agents
 
   npx embertime setup --key <ember_key> [--api-url <url>] [--vsix <file>] [--skip-editors]
+  npx embertime setup                     re-run with the key you already saved
   npx embertime status
   npx embertime uninstall [--purge]
 

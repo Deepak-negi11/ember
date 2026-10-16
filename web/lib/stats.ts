@@ -186,6 +186,26 @@ export interface LeaderRow {
   top_language: string | null;
   /** Every language they used in the period, most time first. */
   languages: { name: string; seconds: number }[];
+  /** Frameworks and tools detected in the projects they worked on in the period, most common first. */
+  stack: string[];
+}
+
+/** Detected tech stack per user, from the projects they touched since `sinceSec`. One query for all rows. */
+async function stacksFor(userIds: number[], sinceSec: number, limit = 6): Promise<Map<number, string[]>> {
+  const out = new Map<number, string[]>();
+  if (!userIds.length) return out;
+  const rows = await all<{ user_id: number; stack: string }>(
+    `SELECT user_id, stack FROM projects WHERE last_seen >= ? AND user_id IN (${userIds.map(() => "?").join(",")})`,
+    sinceSec, ...userIds,
+  );
+  const counts = new Map<number, Map<string, number>>();
+  for (const r of rows) {
+    const c = counts.get(r.user_id) ?? new Map<string, number>();
+    for (const s of safeJsonArray(r.stack)) c.set(s, (c.get(s) ?? 0) + 1);
+    counts.set(r.user_id, c);
+  }
+  for (const [id, c] of counts) out.set(id, [...c.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([s]) => s));
+  return out;
 }
 
 /**
@@ -236,7 +256,9 @@ export async function leaderboard(days: number, limit = 100, opts: BoardOptions 
       );
   // One grouped query for everyone's languages instead of one query per row.
   const langs = new Map<number, { name: string; seconds: number }[]>();
+  let stacks = new Map<number, string[]>();
   if (rows.length && !opts.ranksOnly) {
+    stacks = await stacksFor(rows.map((r) => r.user_id), nowSec() - (days + offset + 1) * 86400);
     const ids = rows.map((r) => r.user_id);
     for (const l of await all<{ user_id: number; name: string; seconds: number }>(
       `SELECT user_id, name, SUM(seconds) AS seconds FROM daily_breakdown
@@ -249,7 +271,7 @@ export async function leaderboard(days: number, limit = 100, opts: BoardOptions 
       langs.set(l.user_id, list);
     }
   }
-  return rows.map((r, i) => ({ ...r, rank: i + 1, daily_avg: Math.round(r.seconds / days), languages: langs.get(r.user_id) ?? [] }));
+  return rows.map((r, i) => ({ ...r, rank: i + 1, daily_avg: Math.round(r.seconds / days), languages: langs.get(r.user_id) ?? [], stack: stacks.get(r.user_id) ?? [] }));
 }
 
 export async function rankOf(userId: number, days = 7): Promise<{ rank: number; of: number } | null> {
@@ -427,10 +449,11 @@ export async function leaderboard24h(limit = 100, opts: { offsetHours?: number; 
       )
     : [];
   const info = new Map(users.map((u) => [u.user_id, u]));
+  const stacks = await stacksFor(scored.map((r) => r.user_id), end - 86400);
   const rows: LeaderRow[] = scored
     .filter((r) => info.has(r.user_id))
     .sort((a, b) => b.seconds - a.seconds || info.get(a.user_id)!.username.localeCompare(info.get(b.user_id)!.username))
-    .map((r, i) => ({ ...info.get(r.user_id)!, ...r, rank: i + 1, daily_avg: r.seconds, top_language: r.languages[0]?.name ?? null }));
+    .map((r, i) => ({ ...info.get(r.user_id)!, ...r, rank: i + 1, daily_avg: r.seconds, top_language: r.languages[0]?.name ?? null, stack: stacks.get(r.user_id) ?? [] }));
   board24Cache.set(key, { at: now, rows });
   return rows.slice(0, limit);
 }

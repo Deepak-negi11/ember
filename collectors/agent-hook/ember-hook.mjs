@@ -21,7 +21,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
-export const VERSION = '0.1.3';
+export const VERSION = '0.1.4';
 export const AGENTS = ['claude-code', 'codex', 'cursor-agent'];
 
 /** Events whose heartbeats are throttled: they fire on every tool call or file edit. */

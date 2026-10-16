@@ -5,7 +5,7 @@ import { formatDuration } from "@/lib/time.ts";
 import { Avatar } from "./ui.tsx";
 import { GitHubMark, XMark } from "./BrandIcons.tsx";
 
-/** Ranked rows shared by the leaderboard page and the dashboard. `max` is the #1 time, for the bars. */
+/** Ranked rows shared by the leaderboard page and the dashboard. */
 /** ▲/▼ versus the previous period, "New" for first-timers. */
 function Movement({ now, before }: { now: number; before?: number }) {
   if (before === undefined) return <span className="text-[10px] font-semibold uppercase tracking-wider text-accent-text">New</span>;
@@ -23,14 +23,13 @@ function Movement({ now, before }: { now: number; before?: number }) {
 }
 
 export function LeaderRows({
-  rows, meId, max, gapBefore, prevRanks, language,
+  rows, meId, gapBefore, prevRanks, language,
 }: {
   rows: LeaderRow[];
   meId?: number;
-  max: number;
   gapBefore?: number;
   prevRanks?: Map<number, number>;
-  /** When ranking one language, the middle column describes that language instead of AI share. */
+  /** When ranking one language, the line under the name describes that language instead of AI share. */
   language?: string;
 }) {
   return (
@@ -38,13 +37,15 @@ export function LeaderRows({
       {rows.map((r, i) => {
         const mine = meId === r.user_id;
         const aiShare = r.seconds ? Math.round((r.ai_seconds / r.seconds) * 100) : 0;
+        // Detected frameworks and tools; languages stand in when no manifest was found.
+        const tags = r.stack.length ? r.stack : r.languages.map((l) => l.name);
         return (
           <li
             key={r.user_id}
             className={`rise relative border-line transition-colors hover:bg-surface-2 [&:not(:first-child)]:border-t ${mine ? "bg-accent-soft" : ""} ${gapBefore === r.rank ? "!border-t-2 border-dashed" : ""}`}
             style={{ ["--d" as string]: Math.min(i, 12) }}
           >
-            <div className="grid grid-cols-[2.5rem_1fr_auto] items-center gap-3 px-4 py-3.5 sm:grid-cols-[3rem_1fr_9rem_7rem] sm:px-6">
+            <div className="grid grid-cols-[2.5rem_1fr_auto] items-center gap-3 px-4 py-3.5 sm:grid-cols-[3rem_minmax(0,1fr)_minmax(0,17rem)_6rem] sm:px-6">
               <span className="flex flex-col items-start leading-none">
                 <span className={`num text-lg font-semibold ${r.rank <= 3 ? "text-accent-text" : "text-faint"}`}>{r.rank}</span>
                 {prevRanks && <span className="mt-1"><Movement now={r.rank} before={prevRanks.get(r.user_id)} /></span>}
@@ -72,14 +73,15 @@ export function LeaderRows({
                     </span>
                   </span>
                   <span className="block truncate text-sm text-muted">
-                    @{r.username}
-                    {r.languages.length > 0 && <> · {r.languages.slice(0, 3).map((l) => l.name).join(", ")}{r.languages.length > 3 && ` +${r.languages.length - 3}`}</>}
+                    @{r.username} · {language ? (r.top_language === language ? "Main language" : "Also uses it") : `${aiShare}% with AI`}
                   </span>
                 </span>
               </span>
-              <span className="hidden text-sm text-muted sm:block">
-                {language ? (r.top_language === language ? "Main language" : "Also uses it") : `${aiShare}% with AI`}
-                <span className="mt-1.5 block h-1 rounded-full bg-accent" style={{ width: `${Math.max(4, (r.seconds / max) * 100)}%`, opacity: 0.35 + 0.65 * (r.seconds / max) }} />
+              <span className="hidden min-w-0 flex-wrap justify-end gap-1.5 sm:flex" aria-label="Tech stack">
+                {tags.slice(0, 3).map((t) => (
+                  <span key={t} className="max-w-[9rem] truncate rounded-lg border border-line bg-surface-2 px-2 py-0.5 text-xs text-muted">{t}</span>
+                ))}
+                {tags.length > 3 && <span className="rounded-lg px-1 py-0.5 text-xs text-faint">+{tags.length - 3}</span>}
               </span>
               <span className="num text-right font-semibold">{formatDuration(r.seconds)}</span>
             </div>
