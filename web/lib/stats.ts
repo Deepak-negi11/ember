@@ -280,19 +280,7 @@ export async function rankOf(userId: number, days = 7): Promise<{ rank: number; 
   return idx === -1 ? null : { rank: idx + 1, of: board.length };
 }
 
-let totalsCache: { at: number; value: { devs: number; seconds: number } } | null = null;
-
-export async function siteTotals() {
-  const now = nowSec();
-  if (totalsCache && now - totalsCache.at < 60) return totalsCache.value;
-  const value = (await get<{ devs: number; seconds: number }>(
-    "SELECT COUNT(DISTINCT user_id) AS devs, COALESCE(SUM(seconds), 0) AS seconds FROM daily_stats",
-  ))!;
-  totalsCache = { at: now, value };
-  return value;
-}
-
-// ---- Community (everyone, last 7 days) ---------------------------------------
+// ---- Community view (the landing page shows a fixed sample in this shape) -------
 
 export interface CommunityWeek {
   seconds: number;
@@ -304,52 +292,6 @@ export interface CommunityWeek {
   stacks: { name: string; projects: number }[];
   /** Tracked seconds per local hour of day (0-23), each in its owner's time zone. */
   hours: number[];
-}
-
-let communityCache: { at: number; value: CommunityWeek } | null = null;
-
-export async function communityWeek(): Promise<CommunityWeek> {
-  const now = nowSec();
-  if (communityCache && now - communityCache.at < 60) return communityCache.value;
-
-  const today = localDate(now, "UTC");
-  const from = addDays(today, -6);
-  const end = addDays(today, 1);
-  const kind = (k: "language" | "editor", limit: number) =>
-    all<{ name: string; seconds: number }>(
-      "SELECT name, SUM(seconds) AS seconds FROM daily_breakdown WHERE kind = ? AND date BETWEEN ? AND ? GROUP BY name ORDER BY seconds DESC LIMIT ?",
-      k, from, end, limit,
-    );
-  const [totals, languages, editors, projectRows, hourRows] = await Promise.all([
-    get<{ seconds: number; ai: number; devs: number }>(
-      "SELECT COALESCE(SUM(seconds), 0) AS seconds, COALESCE(SUM(ai_seconds), 0) AS ai, COUNT(DISTINCT user_id) AS devs FROM daily_stats WHERE date BETWEEN ? AND ?",
-      from, end,
-    ),
-    kind("language", 6),
-    kind("editor", 6),
-    all<{ stack: string }>("SELECT stack FROM projects WHERE last_seen >= ?", now - 7 * 86400),
-    all<{ hour: number; seconds: number }>(
-      "SELECT hour, SUM(seconds) AS seconds FROM daily_hours WHERE date BETWEEN ? AND ? GROUP BY hour", from, end,
-    ),
-  ]);
-
-  const stackCounts = new Map<string, number>();
-  for (const r of projectRows) for (const s of safeJsonArray(r.stack)) stackCounts.set(s, (stackCounts.get(s) ?? 0) + 1);
-  const hours = new Array<number>(24).fill(0);
-  for (const r of hourRows) hours[r.hour] = r.seconds;
-
-  const value: CommunityWeek = {
-    seconds: totals!.seconds,
-    aiSeconds: totals!.ai,
-    devs: totals!.devs,
-    projects: projectRows.length,
-    languages,
-    editors,
-    stacks: [...stackCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12).map(([name, projects]) => ({ name, projects })),
-    hours,
-  };
-  communityCache = { at: now, value };
-  return value;
 }
 
 /** Languages with the most tracked time in the window, for the leaderboard filter. */

@@ -42,7 +42,7 @@ export function LeaderRows({
         return (
           <li
             key={r.user_id}
-            className={`rise relative border-line transition-colors hover:bg-surface-2 [&:not(:first-child)]:border-t ${mine ? "bg-accent-soft" : ""} ${gapBefore === r.rank ? "!border-t-2 border-dashed" : ""}`}
+            className={`rise relative border-line transition-colors hover:bg-surface-2 [&:not(:first-child)]:border-t ${gapBefore === r.rank ? "!border-t-2 border-dashed" : ""}`}
             style={{ ["--d" as string]: Math.min(i, 12) }}
           >
             <div className="grid grid-cols-[2.5rem_1fr_auto] items-center gap-3 px-4 py-3.5 sm:grid-cols-[3rem_minmax(0,1fr)_minmax(0,17rem)_6rem] sm:px-6">

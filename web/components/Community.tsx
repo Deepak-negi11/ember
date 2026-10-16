@@ -1,23 +1,55 @@
 import { Hand, Robot } from "@phosphor-icons/react/ssr";
-import { communityWeek } from "@/lib/stats.ts";
+import type { CommunityWeek } from "@/lib/stats.ts";
 import { formatDuration } from "@/lib/time.ts";
 import { HourChart } from "./HourChart.tsx";
 import { EDITOR_NAMES } from "./ui.tsx";
 
 export const AGENTS = new Set(["claude-code", "codex", "cursor-agent"]);
 
-/** "This week on Ember": live aggregates across every developer. */
-export async function Community() {
-  const w = await communityWeek();
+const h = 3600;
 
-  if (w.seconds === 0) {
-    return (
-      <div className="rounded-3xl border border-dashed border-line-strong p-10 text-center text-muted">
-        Nobody has tracked time this week yet. The first heartbeat fills this in.
-      </div>
-    );
-  }
+/**
+ * A fixed, made-up week for the landing page, so it looks the same for every
+ * visitor and never shows real people's data. Shown with a "Sample data" note.
+ */
+export const SAMPLE_WEEK: CommunityWeek = {
+  seconds: 1240 * h,
+  aiSeconds: 410 * h,
+  devs: 86,
+  projects: 142,
+  // Quiet nights, a morning ramp, a dip at lunch and a long evening peak.
+  hours: [14, 8, 4, 2, 1, 1, 3, 9, 26, 52, 70, 76, 58, 62, 74, 78, 72, 66, 61, 70, 82, 76, 54, 30].map((x) => x * h * 0.62),
+  languages: [
+    { name: "TypeScript", seconds: 412 * h },
+    { name: "Python", seconds: 236 * h },
+    { name: "Rust", seconds: 148 * h },
+    { name: "Go", seconds: 104 * h },
+    { name: "C++", seconds: 72 * h },
+    { name: "SQL", seconds: 46 * h },
+  ],
+  editors: [
+    { name: "vscode", seconds: 452 * h },
+    { name: "cursor", seconds: 378 * h },
+    { name: "claude-code", seconds: 236 * h },
+    { name: "codex", seconds: 104 * h },
+    { name: "cursor-agent", seconds: 70 * h },
+  ],
+  stacks: [
+    { name: "Next.js", projects: 38 },
+    { name: "React", projects: 34 },
+    { name: "Tailwind CSS", projects: 29 },
+    { name: "FastAPI", projects: 17 },
+    { name: "PostgreSQL", projects: 15 },
+    { name: "Prisma", projects: 12 },
+    { name: "Tokio", projects: 9 },
+    { name: "Docker", projects: 9 },
+    { name: "PyTorch", projects: 7 },
+    { name: "Express", projects: 6 },
+  ],
+};
 
+/** The community view: when people code, top languages, hands-on vs agents and stacks. */
+export function Community({ week: w }: { week: CommunityWeek }) {
   const handsOn = w.seconds - w.aiSeconds;
   const handsPct = Math.round((handsOn / w.seconds) * 100);
   const langMax = w.languages[0]?.seconds ?? 1;

@@ -2,10 +2,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowRight, Fire } from "@phosphor-icons/react/ssr";
 import { currentUser } from "@/lib/auth.ts";
-import { siteTotals, todayFor } from "@/lib/stats.ts";
-import { addDays, formatDuration } from "@/lib/time.ts";
+import { todayFor } from "@/lib/stats.ts";
+import { addDays } from "@/lib/time.ts";
 import { Heatmap, type HeatCell } from "@/components/Heatmap.tsx";
-import { Community } from "@/components/Community.tsx";
+import { Community, SAMPLE_WEEK } from "@/components/Community.tsx";
 import { Label, btn } from "@/components/ui.tsx";
 import { JsonLd } from "@/components/JsonLd.tsx";
 import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site.ts";
@@ -39,7 +39,6 @@ export default async function Home() {
   if (await currentUser()) redirect("/leaderboard");
   const end = todayFor("UTC");
   const cells = sampleYear(end);
-  const totals = await siteTotals();
 
   return (
     <>
@@ -72,8 +71,7 @@ export default async function Home() {
               <Fire size={13} weight="fill" />
             </span>
             <span>
-              <span className="num font-semibold text-text">{Math.round(totals.seconds / 3600).toLocaleString("en-US")}h</span> tracked by{" "}
-              {totals.devs} {totals.devs === 1 ? "developer" : "developers"}
+              Free coding time tracker for <span className="font-semibold text-text">editors and AI agents</span>
             </span>
             <ArrowRight size={13} />
           </Link>
@@ -115,11 +113,12 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* Community, live */}
+      {/* Community view (sample data, the same for every visitor) */}
       <section id="community" className="scroll-mt-28 border-t border-line bg-surface-2/60">
         <div className="mx-auto max-w-6xl px-5 py-28 sm:px-6">
-          <SectionHead label="This week" title="This week on Ember" sub="Live totals from everyone tracking with Ember over the last 7 days." />
-          <Community />
+          <SectionHead label="Community" title="See how everyone codes" sub="When people code, the languages and stacks they use, and how much is hands-on versus AI agents." />
+          <Community week={SAMPLE_WEEK} />
+          <p className="mt-4 text-xs text-faint">Sample data. The real community view updates as developers join.</p>
         </div>
       </section>
 
@@ -156,12 +155,6 @@ export default async function Home() {
           <h2 className="font-display text-4xl font-medium leading-[1.05] tracking-tight sm:text-6xl">
             Your first glowing square is <span className="text-accent">one save away.</span>
           </h2>
-          {totals.devs > 0 && (
-            <p className="mt-5 text-lg text-muted">
-              <span className="num font-semibold text-text">{formatDuration(totals.seconds)}</span> tracked by{" "}
-              <span className="num font-semibold text-text">{totals.devs}</span> {totals.devs === 1 ? "developer" : "developers"} so far.
-            </p>
-          )}
           <div className="mt-10">
             <Link href="/login" className={btn.primary}>
               Start tracking
