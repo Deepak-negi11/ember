@@ -4,7 +4,7 @@ import { apiKeyInfo, currentUser } from "@/lib/auth.ts";
 import { linkedAccounts } from "@/lib/accounts.ts";
 import { providerConfigured } from "@/lib/oauth.ts";
 import { publicOrigin } from "@/lib/origin.ts";
-import { ApiKeyPanel, ProfileForm } from "@/components/SettingsForms.tsx";
+import { ApiKeyPanel } from "@/components/SettingsForms.tsx";
 import { SetupTabs } from "@/components/SetupTabs.tsx";
 import { YourTools } from "@/components/YourTools.tsx";
 import { Card, btn } from "@/components/ui.tsx";
@@ -25,9 +25,6 @@ export default async function Settings({ searchParams }: { searchParams: Promise
   if (!user) redirect("/login");
   const key = await apiKeyInfo(user.id);
   const accounts = await linkedAccounts(user.id);
-  const xAccount = accounts.find((a) => a.provider === "x");
-  const zones = Intl.supportedValuesOf("timeZone");
-  if (!zones.includes(user.timezone)) zones.unshift(user.timezone);
 
   return (
     <div className="mx-auto grid max-w-3xl gap-6 px-4 py-10 sm:px-6 sm:py-14">
@@ -87,11 +84,6 @@ export default async function Settings({ searchParams }: { searchParams: Promise
             );
           })}
         </ul>
-      </Card>
-
-      <Card className="rise p-6 sm:p-8" style={{ ["--d" as string]: 3 }}>
-        <h2 className="mb-5 font-display text-xl font-medium tracking-tight">Profile</h2>
-        <ProfileForm user={user} zones={zones} xHandle={xAccount?.handle ?? null} githubHandle={accounts.find((a) => a.provider === "github")?.handle ?? null} />
       </Card>
     </div>
   );

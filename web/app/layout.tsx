@@ -42,13 +42,12 @@ const themeScript = `try{var t=localStorage.getItem("ember-theme");if(t==="light
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const user = await currentUser();
-  // Signed-out visitors get no page links: the landing page links to the setup guide itself.
+  // Signed-out visitors get no page links. The setup guide lives in the footer.
   const links = user
     ? [
         { href: "/leaderboard", label: "Leaderboard" },
         { href: "/dashboard", label: "Dashboard" },
         { href: "/settings", label: "Settings" },
-        { href: "/setup", label: "Setup" },
       ]
     : [];
 
@@ -111,6 +110,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 by <span className="font-medium text-text">{AUTHOR.name}</span>
               </p>
               <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted sm:justify-end">
+                <Link href="/setup" className="hover:text-text">Setup guide</Link>
                 <Link href="/privacy" className="hover:text-text">Privacy</Link>
                 <Link href="/terms" className="hover:text-text">Terms</Link>
               </div>

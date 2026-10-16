@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { ChartBar, Gear, SignOut, User } from "@phosphor-icons/react";
+import { ChartBar, Gear, PencilSimple, SignOut, User } from "@phosphor-icons/react";
 import { logout } from "@/app/actions.ts";
 
 /**
@@ -68,6 +68,9 @@ export function ProfileMenu({ name, username, avatar }: { name: string; username
             <div className="py-1.5" onClick={() => setOpen(false)}>
               <Link href={`/u/${username}`} role="menuitem" className={item}>
                 <User size={16} className="text-muted" /> Your profile
+              </Link>
+              <Link href="/profile" role="menuitem" className={item}>
+                <PencilSimple size={16} className="text-muted" /> Edit profile
               </Link>
               <Link href="/dashboard" role="menuitem" className={item}>
                 <ChartBar size={16} className="text-muted" /> Dashboard

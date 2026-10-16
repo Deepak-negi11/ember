@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CalendarBlank, GithubLogo, Globe, MapPin, Trophy, XLogo } from "@phosphor-icons/react/ssr";
+import { CalendarBlank, GithubLogo, Globe, MapPin, PencilSimple, Trophy, XLogo } from "@phosphor-icons/react/ssr";
 import { currentUser, userByUsername } from "@/lib/auth.ts";
 import { breakdown, rankOf, summary, todayFor } from "@/lib/stats.ts";
 import { addDays, formatDuration } from "@/lib/time.ts";
@@ -75,6 +76,11 @@ export default async function Profile({ params, searchParams }: Props) {
             <Avatar name={user.display_name} src={user.avatar_url} size={88} />
             <h1 className="mt-4 break-words font-display text-3xl font-medium tracking-tight">{user.display_name}</h1>
             <p className="text-muted">@{user.username}</p>
+            {owner && (
+              <Link href="/profile" className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-accent-text hover:underline">
+                <PencilSimple size={14} /> Edit profile
+              </Link>
+            )}
 
             {rank && (
               <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-accent-soft px-3 py-1 text-sm font-semibold text-accent-text">

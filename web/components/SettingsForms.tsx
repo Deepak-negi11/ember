@@ -36,7 +36,7 @@ export function ProfileForm({ user, zones, xHandle, githubHandle }: { user: Prof
             <span className="text-xs text-muted">Verified through your connected X account.</span>
           </div>
         ) : (
-          <Field label="X / Twitter" name="twitter" defaultValue={user.twitter} placeholder="your_handle…" maxLength={40} spellCheck={false} autoComplete="off" hint="Connect X above to verify it." />
+          <Field label="X / Twitter" name="twitter" defaultValue={user.twitter} placeholder="your_handle…" maxLength={40} spellCheck={false} autoComplete="off" hint="Connect X in Settings to verify it." />
         )}
         {githubHandle ? (
           <div className="grid gap-2">
