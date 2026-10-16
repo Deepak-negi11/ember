@@ -6,6 +6,7 @@ import { GeistMono } from "geist/font/mono";
 import { currentUser } from "@/lib/auth.ts";
 import { Avatar, Logo, btn } from "@/components/ui.tsx";
 import { NavLinks } from "@/components/NavLinks.tsx";
+import { ProfileMenu } from "@/components/ProfileMenu.tsx";
 import { ThemeToggle } from "@/components/ThemeToggle.tsx";
 import { Analytics } from "@vercel/analytics/next";
 import { SITE_DESCRIPTION, SITE_KEYWORDS, SITE_NAME, SITE_TAGLINE, SITE_URL } from "@/lib/site.ts";
@@ -76,9 +77,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   <Link href="/dashboard" className="rounded-full px-2.5 py-2 text-sm font-medium text-muted hover:text-text max-[340px]:hidden md:hidden">
                     Stats
                   </Link>
-                  <Link href={`/u/${user.username}`} aria-label="Your public profile" className="rounded-full p-1 transition hover:opacity-85">
-                    <Avatar name={user.display_name} src={user.avatar_url} size={40} />
-                  </Link>
+                  <ProfileMenu
+                    name={user.display_name}
+                    username={user.username}
+                    avatar={<Avatar name={user.display_name} src={user.avatar_url} size={40} />}
+                  />
                 </>
               ) : (
                 <>

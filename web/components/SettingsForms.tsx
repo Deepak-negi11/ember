@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { Key, Warning } from "@phosphor-icons/react";
+import { Key } from "@phosphor-icons/react";
 import { regenerateKey, updateProfile, type FormState } from "@/app/actions.ts";
 import { CopyButton, Field, FormMessage, inputCls, Submit } from "./forms.tsx";
 
@@ -28,7 +28,7 @@ export function ProfileForm({ user, zones, xHandle, githubHandle }: { user: Prof
         <input name="quote" defaultValue={user.quote} maxLength={100} className={inputCls} placeholder="The line people read when you top the board…" />
         <span className="text-xs text-muted">One line, up to 100 characters. Shown on your profile, and with your name at the top of the leaderboard when you hold #1.</span>
       </label>
-      <div className="grid gap-5 sm:grid-cols-3">
+      <div className="grid items-start gap-5 sm:grid-cols-3">
         {xHandle ? (
           <div className="grid gap-2">
             <span className="text-sm font-medium">X / Twitter</span>
@@ -75,12 +75,15 @@ export function ApiKeyPanel({ hint, lastUsed }: { hint: string | null; lastUsed:
   return (
     <div className="grid gap-4">
       {key ? (
-        <div className="rise grid gap-3 rounded-xl border border-accent/40 bg-accent-soft p-4">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <Warning size={16} className="text-accent" /> Copy this key now. It won&apos;t be shown again.
+        <div className="rise grid gap-3 rounded-2xl border border-line-strong bg-surface-2 p-4">
+          <div className="flex items-center gap-2 text-sm">
+            <Key size={16} className="text-muted" />
+            <span>
+              <span className="font-medium">Your new key.</span> <span className="text-muted">Copy it now; for security it&apos;s only shown once.</span>
+            </span>
           </div>
           <div className="flex items-center gap-2">
-            <code className="num min-w-0 flex-1 truncate rounded-lg bg-surface px-3 py-2 text-sm">{key}</code>
+            <code className="num min-w-0 flex-1 truncate rounded-xl border border-line bg-surface px-3 py-2 text-sm">{key}</code>
             <CopyButton text={key} />
           </div>
         </div>

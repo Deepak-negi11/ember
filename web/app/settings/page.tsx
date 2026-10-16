@@ -1,11 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { CheckCircle, GithubLogo, GoogleLogo, SignOut, XLogo } from "@phosphor-icons/react/ssr";
+import { CheckCircle, GithubLogo, GoogleLogo, XLogo } from "@phosphor-icons/react/ssr";
 import { apiKeyInfo, currentUser } from "@/lib/auth.ts";
 import { linkedAccounts } from "@/lib/accounts.ts";
 import { providerConfigured } from "@/lib/oauth.ts";
 import { publicOrigin } from "@/lib/origin.ts";
-import { logout } from "@/app/actions.ts";
 import { ApiKeyPanel, ProfileForm } from "@/components/SettingsForms.tsx";
 import { SetupTabs } from "@/components/SetupTabs.tsx";
 import { YourTools } from "@/components/YourTools.tsx";
@@ -41,11 +40,6 @@ export default async function Settings({ searchParams }: { searchParams: Promise
             <Link href={`/u/${user.username}`} className="font-medium text-accent-text hover:underline">/u/{user.username}</Link>
           </p>
         </div>
-        <form action={logout}>
-          <button className="inline-flex items-center gap-2 rounded-full border border-line px-4 py-2 text-sm text-muted transition hover:text-text active:scale-[0.98]">
-            <SignOut size={16} /> Sign out
-          </button>
-        </form>
       </div>
 
       {sp.welcome && (

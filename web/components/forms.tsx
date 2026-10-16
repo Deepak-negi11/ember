@@ -7,11 +7,12 @@ import type { FormState } from "@/app/actions.ts";
 import { btn } from "./styles.ts";
 
 export const inputCls =
-  "w-full rounded-2xl border border-line-strong bg-surface px-4 py-3 text-[15px] text-text placeholder:text-faint outline-none transition focus:border-ink focus:ring-4 focus:ring-accent/15";
+  // The ring starts transparent at 0px so focus fades and grows in instead of snapping on.
+  "w-full rounded-2xl border border-line-strong bg-surface px-4 py-3 text-[15px] text-text placeholder:text-faint outline-none ring-0 ring-transparent transition-[border-color,box-shadow] duration-300 ease-out focus:border-accent/60 focus:ring-4 focus:ring-accent/15";
 
 export function Field({ label, name, hint, ...rest }: { label: string; name: string; hint?: string } & React.InputHTMLAttributes<HTMLInputElement>) {
   return (
-    <label className="grid gap-2">
+    <label className="grid content-start gap-2">
       <span className="text-sm font-medium">{label}</span>
       <input name={name} className={inputCls} {...rest} />
       {hint && <span className="text-xs text-muted">{hint}</span>}
