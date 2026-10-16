@@ -1,0 +1,83 @@
+{
+  "name": "ember",
+  "displayName": "Ember: Coding Time Tracker",
+  "description": "Track coding time in VS Code, Cursor and Windsurf. A yearly heatmap, languages, projects and a leaderboard. Never sends code or file paths.",
+  "version": "0.1.0",
+  "publisher": "ember-dev",
+  "license": "MIT",
+  "icon": "icon.png",
+  "galleryBanner": {
+    "color": "#0c0c0e",
+    "theme": "dark"
+  },
+  "pricing": "Free",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization"
+  ],
+  "keywords": [
+    "time tracking",
+    "coding time",
+    "productivity",
+    "heatmap",
+    "wakatime",
+    "cursor",
+    "windsurf",
+    "claude code",
+    "codex",
+    "analytics"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "ember.setApiKey",
+        "title": "Set API Key",
+        "category": "Ember"
+      },
+      {
+        "command": "ember.openDashboard",
+        "title": "Open Dashboard",
+        "category": "Ember"
+      },
+      {
+        "command": "ember.showStatus",
+        "title": "Show Status",
+        "category": "Ember"
+      }
+    ],
+    "configuration": {
+      "title": "Ember",
+      "properties": {
+        "ember.apiUrl": {
+          "type": "string",
+          "default": "http://localhost:3000",
+          "markdownDescription": "Base URL of your Ember server. User-level only, so a workspace can't redirect your heartbeats or API key. When left unset, `api_url` from `~/.ember/config.json` is used if present.",
+          "scope": "application"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc -p . --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test \"out/test/**/*.test.js\"",
+    "package": "npx @vscode/vsce package --no-dependencies",
+    "vscode:prepublish": "npm run typecheck && npm run build",
+    "publish:vscode": "npx @vscode/vsce publish --no-dependencies",
+    "publish:openvsx": "npx ovsx publish --no-dependencies -p \"$OVSX_PAT\""
+  },
+  "devDependencies": {
+    "@types/node": "~18.19.130",
+    "@types/vscode": "~1.85.0",
+    "esbuild": "~0.25.12",
+    "typescript": "~5.9.3"
+  }
+}

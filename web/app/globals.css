@@ -1,0 +1,245 @@
+@import "tailwindcss";
+
+/* Ember palette: warm stone neutrals + one ember accent. Dark is the default
+   look; light follows the OS unless the user picks a theme in the nav. */
+/* Ember tokens. Light-first: white paper, slate cards, ink text and one
+   signal-orange accent. Dark mode mirrors it on near-black. */
+:root {
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f8fafc;
+  --line: #e3e8ef;
+  --line-strong: #d0d8e3;
+  --text: #0a0a0a;
+  --muted: #5f5c59;
+  --faint: #807c78;
+  --ink: #0a0a0a;
+  --paper: #ffffff;
+  --accent: #ff4500;
+  --accent-text: #c73600;
+  --accent-soft: rgb(255 69 0 / 0.08);
+  --accent-ink: #ffffff;
+  --danger: #b42318;
+  --h0: #eef2f6;
+  --h1: #ffd8c6;
+  --h2: #ffa37a;
+  --h3: #ff6a2e;
+  --h4: #d43a00;
+  --mist-1: #c5d3e8;
+  --mist-2: #e2e9f3;
+  --mist-3: #fffde6;
+  --mist-4: #c4edff;
+  --glow-strength: 0.32;
+  --shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 12px 32px -12px rgb(15 23 42 / 0.10);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #050505;
+    --surface: #0c0c0e;
+    --surface-2: #131316;
+    --line: #222225;
+    --line-strong: #303035;
+    --text: #f5f5f4;
+    --muted: #a09e9b;
+    --faint: #817e7b;
+    --ink: #f5f5f4;
+    --paper: #050505;
+    --accent-text: #ff7a47;
+    --accent-soft: rgb(255 69 0 / 0.12);
+    --danger: #ff8f80;
+    --h0: #17181b;
+    --h1: #4a1806;
+    --h2: #8f2c07;
+    --h3: #e03e00;
+    --h4: #ff8152;
+    --mist-1: #202833;
+    --mist-2: #1a1e24;
+    --mist-3: #242415;
+    --mist-4: #15242d;
+    --glow-strength: 0.5;
+    --shadow: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 16px 40px -20px rgb(0 0 0 / 0.8);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #050505;
+  --surface: #0c0c0e;
+  --surface-2: #131316;
+  --line: #222225;
+  --line-strong: #303035;
+  --text: #f5f5f4;
+  --muted: #a09e9b;
+  --faint: #817e7b;
+  --ink: #f5f5f4;
+  --paper: #050505;
+  --accent-text: #ff7a47;
+  --accent-soft: rgb(255 69 0 / 0.12);
+  --danger: #ff8f80;
+  --h0: #17181b;
+  --h1: #4a1806;
+  --h2: #8f2c07;
+  --h3: #e03e00;
+  --h4: #ff8152;
+  --mist-1: #202833;
+  --mist-2: #1a1e24;
+  --mist-3: #242415;
+  --mist-4: #15242d;
+  --glow-strength: 0.5;
+  --shadow: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 16px 40px -20px rgb(0 0 0 / 0.8);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-text: var(--accent-text);
+  --color-ink: var(--ink);
+  --color-paper: var(--paper);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-ink: var(--accent-ink);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-jakarta), var(--font-geist-sans), ui-sans-serif, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --shadow-card: var(--shadow);
+}
+
+html {
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background: var(--bg);
+  min-height: 100dvh;
+}
+
+/* Page atmosphere: a faint dot texture plus warm ember light, both fixed-size
+   and non-interactive so they never repaint while scrolling. */
+.atmosphere {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 760px;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(42rem 26rem at 78% 30%, var(--accent-soft), transparent 70%),
+    radial-gradient(30rem 20rem at 8% 0%, rgb(255 168 92 / 0.10), transparent 70%);
+}
+.atmosphere::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(var(--line-strong) 1px, transparent 1.2px);
+  background-size: 22px 22px;
+  mask-image: radial-gradient(70% 80% at 50% 0%, #000 20%, transparent 75%);
+  opacity: 0.55;
+}
+.atmosphere.soft { height: 420px; opacity: 0.7; }
+
+/* Warm light pooled under the hero grid. */
+.ember-pool {
+  background: radial-gradient(closest-side, rgb(255 69 0 / 0.22), transparent);
+  filter: blur(40px);
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+}
+
+.font-display { font-family: var(--font-display); }
+
+html { scroll-behavior: smooth; }
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Heatmap cells */
+.heat-0 { background: var(--h0); }
+.heat-1 { background: var(--h1); }
+.heat-2 { background: var(--h2); }
+.heat-3 { background: var(--h3); }
+.heat-4 { background: var(--h4); }
+
+/* Scroll-triggered reveals. The hidden start state only applies when JS runs
+   (scripting: enabled), so the charts are never invisible without it. */
+@media (prefers-reduced-motion: no-preference) and (scripting: enabled) {
+  /* Heatmap: cells light up in a wave, oldest week first, when scrolled into view. */
+  [data-in="false"] .cell-in { opacity: 0; transform: scale(0.3); }
+  [data-in="true"] .cell-in {
+    animation: cell-in 750ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: calc(var(--i) * 22ms + var(--r) * 36ms);
+  }
+  /* Hour chart: bars grow from the baseline, left to right. */
+  [data-in="false"] .bar-grow { transform: scaleY(0); opacity: 0; }
+  [data-in="true"] .bar-grow {
+    transform: scaleY(1);
+    opacity: 1;
+    transition: transform 900ms cubic-bezier(0.16, 1, 0.3, 1), opacity 300ms ease;
+    transition-delay: calc(var(--b) * 35ms);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .rise {
+    animation: rise 640ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: calc(var(--d, 0) * 70ms);
+  }
+  .flicker {
+    animation: flicker 3.2s ease-in-out infinite;
+  }
+}
+
+@keyframes cell-in {
+  from { opacity: 0; transform: scale(0.3); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes flicker {
+  0%, 100% { transform: scale(1) rotate(0deg); opacity: 1; }
+  40% { transform: scale(1.06) rotate(-2deg); opacity: 0.92; }
+  70% { transform: scale(0.97) rotate(1.5deg); opacity: 1; }
+}
+
+/* Theme toggle icon: show the sun while dark (to switch to light) and vice versa. */
+.show-light { display: none; }
+:root[data-theme="light"] .show-dark { display: none; }
+:root[data-theme="light"] .show-light { display: block; }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .show-dark { display: none; }
+  :root:not([data-theme="dark"]) .show-light { display: block; }
+}
+
+h1, h2, h3 { text-wrap: balance; }
+a, button { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }

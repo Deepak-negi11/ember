@@ -1,0 +1,9 @@
+{
+  // Compiles only the vscode-free modules plus their tests to out/ for node:test.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "sourceMap": true
+  },
+  "include": ["test/**/*.ts"]
+}

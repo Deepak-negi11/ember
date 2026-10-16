@@ -1,0 +1,112 @@
+"use client";
+
+import { useActionState } from "react";
+import { Key, Warning } from "@phosphor-icons/react";
+import { regenerateKey, updateProfile, type FormState } from "@/app/actions.ts";
+import { CopyButton, Field, FormMessage, inputCls, Submit } from "./forms.tsx";
+
+type Profile = {
+  display_name: string; bio: string; quote: string; twitter: string; github: string;
+  website: string; location: string; timezone: string; hide_projects: number;
+};
+
+export function ProfileForm({ user, zones, xHandle, githubHandle }: { user: Profile; zones: string[]; xHandle: string | null; githubHandle: string | null }) {
+  const [state, action] = useActionState(updateProfile, undefined);
+  return (
+    <form action={action} className="grid gap-5">
+      <div className="grid gap-5 sm:grid-cols-2">
+        <Field label="Display name" name="display_name" defaultValue={user.display_name} required maxLength={50} />
+        <Field label="Location" name="location" defaultValue={user.location} maxLength={60} placeholder="Dehradun, India…" />
+      </div>
+      <label className="grid gap-2">
+        <span className="text-sm font-medium">Bio</span>
+        <textarea name="bio" defaultValue={user.bio} maxLength={200} rows={2} className={inputCls} />
+        <span className="text-xs text-muted">Up to 200 characters.</span>
+      </label>
+      <label className="grid gap-2">
+        <span className="text-sm font-medium">Your quote</span>
+        <input name="quote" defaultValue={user.quote} maxLength={100} className={inputCls} placeholder="The line people read when you top the board…" />
+        <span className="text-xs text-muted">One line, up to 100 characters. Shown on your profile, and with your name at the top of the leaderboard when you hold #1.</span>
+      </label>
+      <div className="grid gap-5 sm:grid-cols-3">
+        {xHandle ? (
+          <div className="grid gap-2">
+            <span className="text-sm font-medium">X / Twitter</span>
+            <span className="flex items-center gap-2 rounded-2xl border border-line bg-surface-2 px-4 py-3 text-[15px]">@{xHandle}</span>
+            <span className="text-xs text-muted">Verified through your connected X account.</span>
+          </div>
+        ) : (
+          <Field label="X / Twitter" name="twitter" defaultValue={user.twitter} placeholder="your_handle…" maxLength={40} spellCheck={false} autoComplete="off" hint="Connect X above to verify it." />
+        )}
+        {githubHandle ? (
+          <div className="grid gap-2">
+            <span className="text-sm font-medium">GitHub</span>
+            <span className="flex items-center gap-2 rounded-2xl border border-line bg-surface-2 px-4 py-3 text-[15px]">{githubHandle}</span>
+            <span className="text-xs text-muted">Verified through your GitHub sign-in.</span>
+          </div>
+        ) : (
+          <Field label="GitHub" name="github" defaultValue={user.github} placeholder="your-username…" maxLength={60} spellCheck={false} autoComplete="off" />
+        )}
+        <Field label="Website" name="website" type="url" defaultValue={user.website} placeholder="https://example.com…" maxLength={200} autoComplete="url" />
+      </div>
+      <label className="grid gap-2">
+        <span className="text-sm font-medium">Time zone</span>
+        <select name="timezone" defaultValue={user.timezone} className={inputCls}>
+          {zones.map((z) => <option key={z} value={z}>{z}</option>)}
+        </select>
+        <span className="text-xs text-muted">Decides where your days start and end. Applies to new activity.</span>
+      </label>
+      <label className="flex items-start gap-3 rounded-xl border border-line p-4">
+        <input type="checkbox" name="hide_projects" defaultChecked={!!user.hide_projects} className="mt-1 size-4 accent-[var(--accent)]" />
+        <span>
+          <span className="block text-sm font-medium">Hide project names on my public profile</span>
+          <span className="block text-sm text-muted">Totals, languages and the heatmap stay visible.</span>
+        </span>
+      </label>
+      <FormMessage state={state} />
+      <div><Submit>Save profile</Submit></div>
+    </form>
+  );
+}
+
+export function ApiKeyPanel({ hint, lastUsed }: { hint: string | null; lastUsed: string | null }) {
+  const [state, action] = useActionState<FormState, FormData>(regenerateKey, undefined);
+  const key = state?.key;
+  return (
+    <div className="grid gap-4">
+      {key ? (
+        <div className="rise grid gap-3 rounded-xl border border-accent/40 bg-accent-soft p-4">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <Warning size={16} className="text-accent" /> Copy this key now. It won&apos;t be shown again.
+          </div>
+          <div className="flex items-center gap-2">
+            <code className="num min-w-0 flex-1 truncate rounded-lg bg-surface px-3 py-2 text-sm">{key}</code>
+            <CopyButton text={key} />
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-3 rounded-xl bg-surface-2 p-4">
+          <Key size={18} className="text-muted" />
+          <div className="text-sm">
+            {hint ? (
+              <>
+                <span className="num">ember_••••••••••••{hint}</span>
+                <span className="block text-muted">{lastUsed ? `Last used ${lastUsed}` : "Not used yet"}</span>
+              </>
+            ) : (
+              <span className="text-muted">No key yet. Create one to connect your editor.</span>
+            )}
+          </div>
+        </div>
+      )}
+      <form
+        action={action}
+        onSubmit={(e) => {
+          if (hint && !confirm("Create a new key? The current key stops working everywhere it is installed.")) e.preventDefault();
+        }}
+      >
+        <Submit>{hint ? "Regenerate key" : "Create API key"}</Submit>
+      </form>
+    </div>
+  );
+}

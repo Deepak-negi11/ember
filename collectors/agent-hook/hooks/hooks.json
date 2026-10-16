@@ -1,0 +1,17 @@
+{
+  "description": "Ember activity heartbeats for Claude Code",
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/ember-hook.mjs\" --agent claude-code" }] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/ember-hook.mjs\" --agent claude-code" }] }
+    ],
+    "PostToolUse": [
+      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/ember-hook.mjs\" --agent claude-code" }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/ember-hook.mjs\" --agent claude-code" }] }
+    ]
+  }
+}
