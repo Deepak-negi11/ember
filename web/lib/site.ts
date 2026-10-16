@@ -19,4 +19,4 @@ export const SITE_KEYWORDS = [
 
 // Source repository (navbar star button) and the author credit in the footer.
 export const GITHUB_REPO = "Deepak-negi11/ember";
-export const AUTHOR = { name: "Deepak", x: "depx___" };
+export const AUTHOR = { name: "Deepak" };

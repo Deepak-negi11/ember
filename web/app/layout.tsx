@@ -9,7 +9,6 @@ import { NavLinks } from "@/components/NavLinks.tsx";
 import { ProfileMenu } from "@/components/ProfileMenu.tsx";
 import { ThemeToggle } from "@/components/ThemeToggle.tsx";
 import { GitHubStar } from "@/components/GitHubStar.tsx";
-import { XMark } from "@/components/BrandIcons.tsx";
 import { Analytics } from "@vercel/analytics/next";
 import { AUTHOR, SITE_DESCRIPTION, SITE_KEYWORDS, SITE_NAME, SITE_TAGLINE, SITE_URL } from "@/lib/site.ts";
 import "./globals.css";
@@ -101,28 +100,17 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <div className="atmosphere" aria-hidden />
           <main id="main" className="relative flex-1 pt-24 sm:pt-28">{children}</main>
           <footer className="border-t border-line">
-            <div className="mx-auto grid max-w-6xl gap-6 px-5 py-10 sm:grid-cols-[1fr_auto] sm:items-center sm:px-6">
+            <div className="mx-auto grid max-w-6xl gap-6 px-5 py-10 sm:grid-cols-[1fr_auto_1fr] sm:items-end sm:px-6">
               <div>
                 <Logo />
                 <p className="mt-2 text-sm text-muted">Tracks time, never file contents or prompts.</p>
-                <p className="mt-4 flex flex-wrap items-center gap-x-1.5 text-sm text-muted">
-                  Developed with
-                  <span role="img" aria-label="love" className="text-[13px]">❤️</span>
-                  by
-                  <a
-                    href={`https://x.com/${AUTHOR.x}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 font-medium text-text underline-offset-4 hover:underline"
-                  >
-                    {AUTHOR.name}
-                    <span className="ml-1 inline-flex items-center gap-1 font-normal text-muted">
-                      <XMark size={11} />@{AUTHOR.x}
-                    </span>
-                  </a>
-                </p>
               </div>
-              <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted">
+              <p className="text-sm text-muted max-sm:order-last sm:text-center">
+                Developed with{" "}
+                <span role="img" aria-label="love" className="text-[13px]">❤️</span>{" "}
+                by <span className="font-medium text-text">{AUTHOR.name}</span>
+              </p>
+              <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted sm:justify-end">
                 <Link href="/privacy" className="hover:text-text">Privacy</Link>
                 <Link href="/terms" className="hover:text-text">Terms</Link>
               </div>
