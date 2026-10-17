@@ -9,7 +9,7 @@ const { computeDurations, streaks, localDate, heatLevel, formatDuration } = awai
 const { parseHeartbeat } = await import("./heartbeat.ts");
 const { closeDb, get, run } = await import("./db.ts");
 after(closeDb);
-const { ingest, summary, leaderboard, breakdown } = await import("./stats.ts");
+const { ingest, summary, leaderboard, leaderboard24h, breakdown, forgetTimeZones } = await import("./stats.ts");
 
 const beat = (time: number, over: Partial<{ project: string; language: string; editor: string; category: "coding" | "ai" }> = {}) => ({
   time, project: "ember", language: "TypeScript", editor: "vscode", category: "coding" as const, ...over,
@@ -92,4 +92,63 @@ test("ingest is idempotent and feeds summary, leaderboard and hours", async () =
   assert.equal(lb[0].top_language, "Rust");
   const hours = await get<{ s: number }>("SELECT SUM(seconds) AS s FROM daily_hours WHERE user_id = ?", uid);
   assert.equal(hours!.s, 240);
+});
+
+/** A user with `beats` heartbeats 60s apart, all ending 10 minutes ago. */
+async function userWith(username: string, tz: string, beats: { n: number; category?: "coding" | "ai"; language?: string; editor?: string }[]) {
+  await run("INSERT INTO users (username, display_name, timezone, created_at) VALUES (?, ?, ?, 0)", username, username, tz);
+  forgetTimeZones(); // raw inserts skip the app's account code, which does this
+  const uid = (await get<{ id: number }>("SELECT id FROM users WHERE username = ?", username))!.id;
+  const now = Math.floor(Date.now() / 1000);
+  const total = beats.reduce((a, b) => a + b.n, 0);
+  let t = now - 600 - total * 60;
+  const batch = [];
+  for (const b of beats) {
+    for (let i = 0; i < b.n; i++, t += 60) {
+      batch.push(parseHeartbeat({ time: t, project: "p", language: b.language ?? "Go", editor: b.editor ?? (b.category === "ai" ? "claude-code" : "vscode"), category: b.category ?? "coding", is_write: true }, now)!);
+    }
+  }
+  for (let i = 0; i < batch.length; i += 500) await ingest(uid, tz, batch.slice(i, i + 500));
+  return uid;
+}
+
+test("leaderboards cap AI time per day and offer a hands-on view", async () => {
+  // Bot: an agent left running for ~6h with no hands-on time. Dev: 2h typing + 1h of agent work.
+  await userWith("bot", "UTC", [{ n: 361, category: "ai" }]);
+  await userWith("dev", "UTC", [{ n: 120 }, { n: 61, category: "ai" }]);
+
+  const all = await leaderboard(7, 100, { ranksOnly: true });
+  const bot = all.find((r) => r.username === "bot")!;
+  const dev = all.find((r) => r.username === "dev")!;
+  assert.equal(bot.seconds, 4 * 3600, "AI time is capped at 4h a day");
+  assert.equal(dev.seconds, 3 * 3600, "under the cap nothing changes");
+
+  const handsOn = await leaderboard(7, 100, { mode: "hands-on" });
+  assert.equal(handsOn.find((r) => r.username === "bot"), undefined, "agent-only time does not rank hands-on");
+  assert.equal(handsOn.find((r) => r.username === "dev")!.seconds, 2 * 3600);
+
+  // The per-language board uses the per-language AI split in daily_breakdown.
+  const goHandsOn = await leaderboard(7, 100, { mode: "hands-on", language: "Go" });
+  assert.deepEqual(goHandsOn.map((r) => [r.username, r.seconds]), [["dev", 2 * 3600], ["ana", 0]].filter(([, s]) => s));
+
+  // The rolling 24h board applies the same rules from raw heartbeats.
+  const day = await leaderboard24h(100, { mode: "hands-on" });
+  assert.equal(day.find((r) => r.username === "dev")!.seconds, 2 * 3600);
+  assert.equal((await leaderboard24h(100)).find((r) => r.username === "bot")!.seconds, 4 * 3600);
+});
+
+test("weekly boards use each user's own local days", async () => {
+  // Activity 8 local days ago is outside the 7-day window for its owner's zone, whatever UTC says.
+  await run("INSERT INTO users (username, display_name, timezone, created_at) VALUES ('kol','Kol','Asia/Kolkata',0)");
+  forgetTimeZones();
+  const uid = (await get<{ id: number }>("SELECT id FROM users WHERE username='kol'"))!.id;
+  const today = localDate(Math.floor(Date.now() / 1000), "Asia/Kolkata");
+  const day = (offset: number) => {
+    const d = new Date(`${today}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - offset);
+    return d.toISOString().slice(0, 10);
+  };
+  await run("INSERT INTO daily_stats (user_id, date, seconds, ai_seconds) VALUES (?, ?, 600, 0), (?, ?, 900, 0)", uid, day(7), uid, day(6));
+  const row = (await leaderboard(7, 100, { ranksOnly: true })).find((r) => r.username === "kol")!;
+  assert.equal(row.seconds, 900, "day 7 back is outside; day 6 back is inside");
 });

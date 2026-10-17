@@ -12,7 +12,10 @@ import { fileURLToPath } from 'node:url';
 import { entityHash, loadEntityKey } from '../ember-hook.mjs';
 import { tmpDir, makeRepo, startServer, isolatedEnv, KEY } from './helpers.mjs';
 
-const HOOK = fileURLToPath(new URL('../ember-hook.mjs', import.meta.url));
+// EMBER_HOOK_UNDER_TEST points at a packed copy, so CI checks what ships, not just the source.
+const HOOK = process.env.EMBER_HOOK_UNDER_TEST
+  ? path.resolve(process.env.EMBER_HOOK_UNDER_TEST)
+  : fileURLToPath(new URL('../ember-hook.mjs', import.meta.url));
 const DOCUMENTED_FIELDS = ['branch', 'category', 'editor', 'entity', 'is_write', 'language', 'project', 'stack', 'time'];
 
 function runHook(env, payload) {

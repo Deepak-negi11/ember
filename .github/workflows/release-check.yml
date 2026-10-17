@@ -1,0 +1,45 @@
+name: Tests and release check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  # Daily: catches a registry serving something other than this repo's build.
+  schedule:
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Web
+        working-directory: web
+        run: npm ci && npm run typecheck && npm test
+      - name: VS Code extension
+        working-directory: extensions/vscode
+        run: npm ci && npm run typecheck && npm test
+      - name: Agent hook
+        working-directory: collectors/agent-hook
+        run: npm test
+
+  release-check:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install extension build tools
+        working-directory: extensions/vscode
+        run: npm ci
+      - name: Pack, privacy-test, compare with npm and Open VSX, REA diff
+        run: bash scripts/release-check.sh

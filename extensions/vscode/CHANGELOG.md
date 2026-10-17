@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+- New setting `ember.sendBranch`: turn it off to keep branch names on your machine. `send_branch: false` in `~/.ember/config.json` does the same for every Ember collector.
+
 ## 0.1.2
 
 - File paths are now hashed with a random key that stays on your machine (`~/.ember/entity.key`), so a guessed path can't be matched to a stored hash.

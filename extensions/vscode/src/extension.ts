@@ -23,7 +23,7 @@ import { StackCache } from './stack';
 import { HeartbeatGate, detectEditor } from './tracker';
 import type { Editor, Heartbeat, Today } from './types';
 
-const VERSION = '0.1.2';
+const VERSION = '0.1.3';
 const SECRET_KEY = 'ember.apiKey';
 const QUEUE_STATE_KEY = 'ember.queue';
 const FLUSH_INTERVAL_MS = 30_000;
@@ -120,6 +120,13 @@ class Ember implements vscode.Disposable {
     return normalizeUrl(typeof shared === 'string' && shared.trim() ? shared : DEFAULT_API_URL);
   }
 
+  /** User-level `ember.sendBranch` wins; otherwise `send_branch` in ~/.ember/config.json; otherwise on. */
+  private sendBranch(): boolean {
+    const configured = vscode.workspace.getConfiguration('ember').inspect<boolean>('sendBranch')?.globalValue;
+    if (typeof configured === 'boolean') return configured;
+    return readSharedConfig().send_branch !== false;
+  }
+
   /** SecretStorage first, then the shared config file. */
   private async apiKey(): Promise<string | undefined> {
     try {
@@ -163,7 +170,7 @@ class Ember implements vscode.Disposable {
     };
     const language = languageName(doc.languageId);
     if (language) hb.language = language;
-    if (gitRoot) {
+    if (gitRoot && this.sendBranch()) {
       const branch = readBranch(gitRoot);
       if (branch) hb.branch = branch;
     }

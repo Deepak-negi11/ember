@@ -38,6 +38,10 @@ export interface DayDurations {
   project: Map<string, number>;
   language: Map<string, number>;
   editor: Map<string, number>;
+  /** The AI-agent part of each project/language/editor total above. */
+  aiProject: Map<string, number>;
+  aiLanguage: Map<string, number>;
+  aiEditor: Map<string, number>;
   /** Seconds by local hour of day (0-23), only when a time zone is given. */
   hour: Map<number, number>;
 }
@@ -57,7 +61,10 @@ export function localHour(unixSec: number, tz: string): number {
  */
 export function computeDurations(beats: Beat[], timeout = IDLE_TIMEOUT_SEC, tz?: string): DayDurations {
   const sorted = [...beats].sort((a, b) => a.time - b.time);
-  const out: DayDurations = { total: 0, ai: 0, project: new Map(), language: new Map(), editor: new Map(), hour: new Map() };
+  const out: DayDurations = {
+    total: 0, ai: 0, project: new Map(), language: new Map(), editor: new Map(),
+    aiProject: new Map(), aiLanguage: new Map(), aiEditor: new Map(), hour: new Map(),
+  };
   const add = (m: Map<string, number>, k: string, v: number) => m.set(k, (m.get(k) ?? 0) + v);
 
   for (let i = 0; i < sorted.length - 1; i++) {
@@ -65,7 +72,12 @@ export function computeDurations(beats: Beat[], timeout = IDLE_TIMEOUT_SEC, tz?:
     const gap = sorted[i + 1].time - cur.time;
     if (gap <= 0 || gap > timeout) continue;
     out.total += gap;
-    if (cur.category === "ai") out.ai += gap;
+    if (cur.category === "ai") {
+      out.ai += gap;
+      add(out.aiProject, cur.project, gap);
+      add(out.aiLanguage, cur.language, gap);
+      add(out.aiEditor, cur.editor, gap);
+    }
     add(out.project, cur.project, gap);
     add(out.language, cur.language, gap);
     add(out.editor, cur.editor, gap);

@@ -1,5 +1,5 @@
 import { all, get, tx, type Param, type Q } from "./db.ts";
-import { addDays, computeDurations, localDate, streaks, type Beat } from "./time.ts";
+import { addDays, computeDurations, isValidTimeZone, localDate, streaks, type Beat } from "./time.ts";
 import type { ParsedHeartbeat } from "./heartbeat.ts";
 
 const nowSec = () => Math.floor(Date.now() / 1000);
@@ -71,11 +71,18 @@ export async function recomputeDay(q: Q, userId: number, date: string, tz: strin
 
   await q.run("INSERT INTO daily_stats (user_id, date, seconds, ai_seconds) VALUES (?, ?, ?, ?)", userId, date, d.total, d.ai);
   const rows: Param[] = [];
-  for (const [kind, map] of [["project", d.project], ["language", d.language], ["editor", d.editor]] as const) {
-    for (const [name, sec] of map) rows.push(userId, date, kind, name, sec);
+  for (const [kind, map, ai] of [
+    ["project", d.project, d.aiProject],
+    ["language", d.language, d.aiLanguage],
+    ["editor", d.editor, d.aiEditor],
+  ] as const) {
+    for (const [name, sec] of map) rows.push(userId, date, kind, name, sec, ai.get(name) ?? 0);
   }
   if (rows.length) {
-    await q.run(`INSERT INTO daily_breakdown (user_id, date, kind, name, seconds) VALUES ${new Array(rows.length / 5).fill("(?, ?, ?, ?, ?)").join(", ")}`, ...rows);
+    await q.run(
+      `INSERT INTO daily_breakdown (user_id, date, kind, name, seconds, ai_seconds) VALUES ${new Array(rows.length / 6).fill("(?, ?, ?, ?, ?, ?)").join(", ")}`,
+      ...rows,
+    );
   }
   const hours: Param[] = [];
   for (const [h, sec] of d.hour) hours.push(userId, date, h, sec);
@@ -209,63 +216,117 @@ async function stacksFor(userIds: number[], sinceSec: number, limit = 6): Promis
 }
 
 /**
- * Ranks everyone by tracked time over the last `days` days. The cutoff uses the
- * UTC calendar; per-user dates are local, so the edges can differ by a few hours
- * across time zones, which is an accepted approximation for a weekly board.
+ * AI-agent time a user can score per day on the "all" boards. An agent left
+ * running keeps writing files and would otherwise climb the board unattended.
+ * Personal stats are never capped; only rankings are.
  */
+export const AI_DAILY_CAP_SEC = 4 * 3600;
+
+/** "all": hands-on time plus capped AI time. "hands-on": AI-agent time excluded. */
+export type BoardMode = "all" | "hands-on";
+
 export interface BoardOptions {
   /** Shift the window back this many days (e.g. `days` for the previous period). */
   offsetDays?: number;
   /** Rank by time in one language instead of total time. */
   language?: string;
+  mode?: BoardMode;
   /** Skip the per-user language lists (only positions are needed). */
   ranksOnly?: boolean;
 }
 
+/**
+ * Ranked seconds for one rollup row (`t` = daily_stats or daily_breakdown alias):
+ * hands-on time, plus AI time up to the daily cap unless the board is hands-on.
+ */
+function scoredSeconds(t: string, mode: BoardMode) {
+  return mode === "hands-on"
+    ? `(${t}.seconds - ${t}.ai_seconds)`
+    : `(${t}.seconds - ${t}.ai_seconds + MIN(${t}.ai_seconds, ${AI_DAILY_CAP_SEC}))`;
+}
+
+/**
+ * Each user's own last `days` local calendar days, as a VALUES table keyed by
+ * time zone: everyone's week ends at their own midnight, not at UTC midnight.
+ * One row per distinct time zone, so this stays small however many users exist.
+ */
+let zoneCache: { at: number; zones: { timezone: string }[] } | undefined;
+
+/** Call after a user is created or changes time zone, so boards include them at once. */
+export function forgetTimeZones() {
+  zoneCache = undefined;
+}
+
+async function localWindows(days: number, offsetDays: number) {
+  const now = nowSec();
+  // A page builds two or three boards; the zone list changes only when someone
+  // picks a new zone in Settings, so a minute's staleness is fine.
+  if (!zoneCache || now - zoneCache.at >= 60) zoneCache = { at: now, zones: await all<{ timezone: string }>("SELECT DISTINCT timezone FROM users") };
+  const zones = zoneCache.zones;
+  const params: Param[] = [];
+  for (const { timezone } of zones) {
+    const to = addDays(localDate(now, isValidTimeZone(timezone) ? timezone : "UTC"), -offsetDays);
+    params.push(timezone, addDays(to, -(days - 1)), to);
+  }
+  return { sql: `win(tz, d_from, d_to) AS (VALUES ${zones.map(() => "(?, ?, ?)").join(", ")})`, params, empty: zones.length === 0 };
+}
+
+/** Ranks everyone by tracked time over their own last `days` local days. */
 export async function leaderboard(days: number, limit = 100, opts: BoardOptions = {}): Promise<LeaderRow[]> {
-  const today = localDate(nowSec(), "UTC");
+  const mode = opts.mode ?? "all";
   const offset = opts.offsetDays ?? 0;
-  const anchor = addDays(today, -offset);
-  const from = addDays(anchor, -(days - 1));
-  // The current window reaches one day ahead to cover time zones east of UTC.
-  const end = offset ? anchor : addDays(anchor, 1);
+  const win = await localWindows(days, offset);
+  if (win.empty) return [];
   const cols = `u.id AS user_id, u.username, u.display_name, u.avatar_url, u.quote, u.bio, u.twitter, u.github, u.location`;
+  const from = `JOIN users u ON u.id = t.user_id JOIN win w ON w.tz = u.timezone`;
+  const inWindow = `t.date BETWEEN w.d_from AND w.d_to`;
+  // Per-user lookups write `+kind` so SQLite uses the (user_id, date, ...) primary key,
+  // not daily_breakdown_kind_date, which would read every user's rows once per user.
   const topLang = `(SELECT b2.name FROM daily_breakdown b2
-              WHERE b2.user_id = u.id AND b2.kind = 'language' AND b2.date BETWEEN ? AND ?
-              GROUP BY b2.name ORDER BY SUM(b2.seconds) DESC LIMIT 1) AS top_language`;
+              WHERE b2.user_id = u.id AND +b2.kind = 'language' AND b2.date BETWEEN w.d_from AND w.d_to
+              GROUP BY b2.name ORDER BY SUM(${scoredSeconds("b2", mode)}) DESC LIMIT 1) AS top_language`;
+  const aiCol = mode === "hands-on" ? "0" : `SUM(MIN(t.ai_seconds, ${AI_DAILY_CAP_SEC}))`;
   const rows = opts.language
     ? await all<Omit<LeaderRow, "rank" | "daily_avg" | "languages">>(
-        `SELECT ${cols}, SUM(b.seconds) AS seconds, 0 AS ai_seconds, ${topLang}
-           FROM daily_breakdown b JOIN users u ON u.id = b.user_id
-          WHERE b.kind = 'language' AND b.name = ? AND b.date BETWEEN ? AND ?
+        `WITH ${win.sql}
+         SELECT ${cols}, SUM(${scoredSeconds("t", mode)}) AS seconds, ${aiCol} AS ai_seconds, ${topLang}
+           FROM daily_breakdown t ${from}
+          WHERE t.kind = 'language' AND t.name = ? AND ${inWindow}
           GROUP BY u.id
-          HAVING seconds > 0
+          HAVING SUM(${scoredSeconds("t", mode)}) > 0
           ORDER BY seconds DESC, u.username ASC
           LIMIT ?`,
-        from, end, opts.language, from, end, limit,
+        ...win.params, opts.language, limit,
       )
     : await all<Omit<LeaderRow, "rank" | "daily_avg" | "languages">>(
-        `SELECT ${cols}, SUM(s.seconds) AS seconds, SUM(s.ai_seconds) AS ai_seconds, ${topLang}
-           FROM daily_stats s JOIN users u ON u.id = s.user_id
-          WHERE s.date BETWEEN ? AND ?
+        `WITH ${win.sql}
+         SELECT ${cols}, SUM(${scoredSeconds("t", mode)}) AS seconds, ${aiCol} AS ai_seconds, ${topLang}
+           FROM daily_stats t ${from}
+          WHERE ${inWindow}
           GROUP BY u.id
-          HAVING seconds > 0
+          HAVING SUM(${scoredSeconds("t", mode)}) > 0
           ORDER BY seconds DESC, u.username ASC
           LIMIT ?`,
-        from, end, from, end, limit,
+        ...win.params, limit,
       );
   // One grouped query for everyone's languages instead of one query per row.
   const langs = new Map<number, { name: string; seconds: number }[]>();
   let stacks = new Map<number, string[]>();
   if (rows.length && !opts.ranksOnly) {
-    stacks = await stacksFor(rows.map((r) => r.user_id), nowSec() - (days + offset + 1) * 86400);
     const ids = rows.map((r) => r.user_id);
-    for (const l of await all<{ user_id: number; name: string; seconds: number }>(
-      `SELECT user_id, name, SUM(seconds) AS seconds FROM daily_breakdown
-        WHERE kind = 'language' AND date BETWEEN ? AND ? AND user_id IN (${ids.map(() => "?").join(",")})
-        GROUP BY user_id, name ORDER BY user_id, seconds DESC`,
-      from, end, ...ids,
-    )) {
+    const [stackRows, langRows] = await Promise.all([
+      stacksFor(ids, nowSec() - (days + offset + 1) * 86400),
+      all<{ user_id: number; name: string; seconds: number }>(
+        `WITH ${win.sql}
+         SELECT t.user_id, t.name, SUM(${scoredSeconds("t", mode)}) AS seconds
+           FROM daily_breakdown t ${from}
+          WHERE +t.kind = 'language' AND ${inWindow} AND t.user_id IN (${ids.map(() => "?").join(",")})
+          GROUP BY t.user_id, t.name HAVING SUM(${scoredSeconds("t", mode)}) > 0 ORDER BY t.user_id, seconds DESC`,
+        ...win.params, ...ids,
+      ),
+    ]);
+    stacks = stackRows;
+    for (const l of langRows) {
       const list = langs.get(l.user_id) ?? [];
       list.push({ name: l.name, seconds: l.seconds });
       langs.set(l.user_id, list);
@@ -275,7 +336,7 @@ export async function leaderboard(days: number, limit = 100, opts: BoardOptions 
 }
 
 export async function rankOf(userId: number, days = 7): Promise<{ rank: number; of: number } | null> {
-  const board = await leaderboard(days, 10_000);
+  const board = await leaderboard(days, 10_000, { ranksOnly: true });
   const idx = board.findIndex((r) => r.user_id === userId);
   return idx === -1 ? null : { rank: idx + 1, of: board.length };
 }
@@ -358,8 +419,12 @@ const board24Cache = new Map<string, { at: number; rows: LeaderRow[] }>();
  * the same merged-timeline rule as the daily rollups. `offsetHours` shifts the
  * window back, e.g. 24 for the previous day's ranks. Cached for a minute.
  */
-export async function leaderboard24h(limit = 100, opts: { offsetHours?: number; language?: string } = {}): Promise<LeaderRow[]> {
-  const key = `${opts.offsetHours ?? 0}|${opts.language ?? ""}`;
+export async function leaderboard24h(
+  limit = 100,
+  opts: { offsetHours?: number; language?: string; mode?: BoardMode } = {},
+): Promise<LeaderRow[]> {
+  const mode = opts.mode ?? "all";
+  const key = `${opts.offsetHours ?? 0}|${opts.language ?? ""}|${mode}`;
   const cached = board24Cache.get(key);
   const now = nowSec();
   if (cached && now - cached.at < 60) return cached.rows.slice(0, limit);
@@ -378,9 +443,18 @@ export async function leaderboard24h(limit = 100, opts: { offsetHours?: number; 
   const scored = [...byUser.entries()]
     .map(([user_id, list]) => {
       const d = computeDurations(list);
-      const languages = [...d.language.entries()].sort((a, b) => b[1] - a[1]).map(([name, seconds]) => ({ name, seconds }));
-      const seconds = opts.language ? d.language.get(opts.language) ?? 0 : d.total;
-      return { user_id, seconds, ai_seconds: opts.language ? 0 : d.ai, languages };
+      // Same rule as scoredSeconds(): hands-on time, plus AI time up to the cap.
+      const score = (total: number, ai: number) => total - ai + (mode === "hands-on" ? 0 : Math.min(ai, AI_DAILY_CAP_SEC));
+      const languages = [...d.language.entries()]
+        .map(([name, sec]) => ({ name, seconds: score(sec, d.aiLanguage.get(name) ?? 0) }))
+        .filter((l) => l.seconds > 0)
+        .sort((a, b) => b.seconds - a.seconds);
+      const seconds = opts.language
+        ? score(d.language.get(opts.language) ?? 0, d.aiLanguage.get(opts.language) ?? 0)
+        : score(d.total, d.ai);
+      const ai = opts.language ? d.aiLanguage.get(opts.language) ?? 0 : d.ai;
+      const ai_seconds = mode === "hands-on" ? 0 : Math.min(ai, AI_DAILY_CAP_SEC);
+      return { user_id, seconds, ai_seconds, languages };
     })
     .filter((r) => r.seconds > 0);
 

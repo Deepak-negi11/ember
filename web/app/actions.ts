@@ -6,6 +6,7 @@ import { currentUser, destroySession, generateApiKey } from "@/lib/auth.ts";
 import { linkedAccounts } from "@/lib/accounts.ts";
 import { run } from "@/lib/db.ts";
 import { isValidTimeZone } from "@/lib/time.ts";
+import { forgetTimeZones } from "@/lib/stats.ts";
 
 export type FormState = { error?: string; ok?: string; key?: string } | undefined;
 
@@ -51,6 +52,7 @@ export async function updateProfile(_: FormState, form: FormData): Promise<FormS
             location = ?, timezone = ?, hide_projects = ? WHERE id = ?`,
     display, bio, quote, twitter, github, website, location, tz, form.get("hide_projects") ? 1 : 0, user.id,
   );
+  forgetTimeZones();
 
   revalidatePath("/", "layout");
   return { ok: "Profile saved." };

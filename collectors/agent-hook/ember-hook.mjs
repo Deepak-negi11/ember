@@ -14,15 +14,17 @@
 //   * heartbeats are appended to ~/.ember/queue.jsonl before any network I/O,
 //     so nothing is lost when the server is down
 //
-// Environment overrides: EMBER_HOME (default ~/.ember), EMBER_API_URL, EMBER_API_KEY.
+// Environment overrides: EMBER_HOME (default ~/.ember), EMBER_API_URL, EMBER_API_KEY,
+// EMBER_SEND_BRANCH=0 (don't send branch names).
 
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-export const VERSION = '0.1.4';
+export const VERSION = '0.1.5';
 export const AGENTS = ['claude-code', 'codex', 'cursor-agent'];
 
 /** Events whose heartbeats are throttled: they fire on every tool call or file edit. */
@@ -72,12 +74,16 @@ function readJson(file, fallback) {
   }
 }
 
-/** Resolve API URL + key: env overrides win over ~/.ember/config.json. */
+/**
+ * Resolve API URL + key: env overrides win over ~/.ember/config.json.
+ * `send_branch: false` (or EMBER_SEND_BRANCH=0) keeps branch names on this machine.
+ */
 export function loadConfig(home, env = process.env) {
   const cfg = readJson(paths(home).config, {}) || {};
   const apiUrl = String(env.EMBER_API_URL || cfg.api_url || DEFAULT_API_URL).replace(/\/+$/, '');
   const apiKey = env.EMBER_API_KEY || cfg.api_key || '';
-  return { apiUrl, apiKey };
+  const sendBranch = env.EMBER_SEND_BRANCH !== undefined ? env.EMBER_SEND_BRANCH !== '0' : cfg.send_branch !== false;
+  return { apiUrl, apiKey, sendBranch };
 }
 
 function writeAtomic(file, data) {
@@ -363,6 +369,56 @@ export function isWriteTool(toolName) {
   return typeof toolName === 'string' && WRITE_TOOLS.has(toolName.toLowerCase());
 }
 
+/** Shell tools (Claude Code's Bash, Codex's shell). They can write files without naming them. */
+const SHELL_TOOLS = new Set(['bash', 'shell', 'local_shell', 'exec_command']);
+
+export function isShellTool(toolName) {
+  return typeof toolName === 'string' && SHELL_TOOLS.has(toolName.toLowerCase());
+}
+
+const SHELL_LOOKBACK_S = 600; // never credit a shell command with edits older than this
+const SHELL_FIRST_LOOKBACK_S = 120; // when there is no earlier event to measure from
+const GIT_TIMEOUT_MS = 1_500;
+const MAX_CHANGED_FILES = 5_000;
+
+/**
+ * The file a shell command most likely wrote: among files git reports as
+ * modified, or new and not ignored, under `root`, the one changed most recently
+ * after `sinceSec`. Ignored paths (node_modules, build output) never count, and
+ * `git pull` or `git checkout` leave nothing modified, so they don't either.
+ */
+export function recentlyChangedFile(root, sinceSec) {
+  let out;
+  try {
+    out = execFileSync('git', ['-C', root, 'ls-files', '--modified', '--others', '--exclude-standard', '-z'], {
+      encoding: 'utf8',
+      timeout: GIT_TIMEOUT_MS,
+      maxBuffer: 8 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch {
+    return undefined; // not a git checkout, git missing, or too slow
+  }
+  let best;
+  let bestTime = sinceSec;
+  const names = out.split('\0');
+  for (let i = 0; i < names.length && i < MAX_CHANGED_FILES; i++) {
+    if (!names[i]) continue;
+    const abs = path.join(root, names[i]);
+    let mtime;
+    try {
+      mtime = fs.statSync(abs).mtimeMs / 1000;
+    } catch {
+      continue; // deleted
+    }
+    if (mtime > bestTime) {
+      best = abs;
+      bestTime = mtime;
+    }
+  }
+  return best;
+}
+
 /** All file paths named in an apply_patch body ("*** Update File: path", Add/Delete/Move to). */
 export function parseApplyPatchPaths(text) {
   if (typeof text !== 'string') return [];
@@ -474,15 +530,22 @@ export function parsePayload(text) {
   }
 }
 
+/** Working directory of a hook payload. Claude Code and Codex send `cwd`; Cursor sends `workspace_roots` (and sets CURSOR_PROJECT_DIR). */
+export function payloadCwd(payload, env = process.env) {
+  const roots = Array.isArray(payload.workspace_roots) ? payload.workspace_roots.filter((r) => typeof r === 'string' && r) : [];
+  return (typeof payload.cwd === 'string' && payload.cwd) || roots[0] || env.CURSOR_PROJECT_DIR || process.cwd();
+}
+
 /**
  * Build exactly one heartbeat from a hook payload. Only derived, non-sensitive
  * fields are copied: never prompt text, tool output, file contents or paths.
+ * `changedFile` is a file a shell command was found to have written.
  */
-export function buildHeartbeat(payload, { agent, now = Date.now() / 1000, env = process.env, entityKey } = {}) {
-  // Claude Code and Codex send `cwd`; Cursor sends `workspace_roots` (and sets CURSOR_PROJECT_DIR).
-  const roots = Array.isArray(payload.workspace_roots) ? payload.workspace_roots.filter((r) => typeof r === 'string' && r) : [];
-  const cwd =
-    (typeof payload.cwd === 'string' && payload.cwd) || roots[0] || env.CURSOR_PROJECT_DIR || process.cwd();
+export function buildHeartbeat(
+  payload,
+  { agent, now = Date.now() / 1000, env = process.env, entityKey, sendBranch = true, changedFile } = {},
+) {
+  const cwd = payloadCwd(payload, env);
   const root = findGitRoot(cwd);
   const projectDir = root || path.resolve(cwd);
   const hb = {
@@ -490,14 +553,15 @@ export function buildHeartbeat(payload, { agent, now = Date.now() / 1000, env = 
     project: path.basename(projectDir) || 'unknown',
     editor: agent,
     category: 'ai',
-    is_write: isWriteTool(payload.tool_name) || payload.hook_event_name === 'afterFileEdit',
+    is_write: Boolean(changedFile) || isWriteTool(payload.tool_name) || payload.hook_event_name === 'afterFileEdit',
   };
-  if (root) {
+  if (root && sendBranch) {
     const branch = readBranch(root);
     if (branch) hb.branch = branch;
   }
   // Cursor's afterFileEdit puts the edited file at the top level.
   const file =
+    changedFile ||
     extractFilePath(payload.tool_input, cwd) ||
     (typeof payload.file_path === 'string' && payload.file_path.trim() ? path.resolve(cwd, payload.file_path.trim()) : undefined);
   if (file) {
@@ -809,20 +873,39 @@ export async function runHook({ argv = [], env = process.env, stdinText = '' } =
     }
     const payload = parsePayload(stdinText);
     const event = typeof payload.hook_event_name === 'string' ? payload.hook_event_name : '';
-    const hb = buildHeartbeat(payload, { agent, env });
-    const { apiUrl, apiKey } = loadConfig(home, env);
+    const { apiUrl, apiKey, sendBranch } = loadConfig(home, env);
+    let hb = buildHeartbeat(payload, { agent, env, sendBranch });
+
+    // Every event records when this agent last acted in this project, so a shell
+    // command is only credited with files changed since the agent's previous step.
+    const state = readState(home);
+    const key = `${hb.editor}|${hb.project}`;
+    const previous = state.seen?.[key];
+    state.seen = { ...(state.seen || {}), [key]: hb.time };
+
+    if (!hb.is_write && event === 'PostToolUse' && isShellTool(payload.tool_name) && !shouldThrottle(state, hb, event)) {
+      const root = findGitRoot(payloadCwd(payload, env));
+      const since = typeof previous === 'number'
+        ? Math.max(previous, hb.time - SHELL_LOOKBACK_S)
+        : hb.time - SHELL_FIRST_LOOKBACK_S;
+      const changedFile = root && recentlyChangedFile(root, since);
+      if (changedFile) hb = buildHeartbeat(payload, { agent, env, sendBranch, changedFile, now: hb.time });
+    }
 
     // Only an agent changing a file counts as coding. Opening a session,
     // sending a prompt or reading files does not; those events just deliver
     // anything still queued.
     if (!hb.is_write) {
+      writeState(home, state);
       await flushQueue(home, { apiUrl, apiKey });
       return { status: 'not-writing' };
     }
 
-    const state = readState(home);
-    if (shouldThrottle(state, hb, event)) return { status: 'throttled' };
-    state.last = { ...(state.last || {}), [`${hb.editor}|${hb.project}`]: hb.time };
+    if (shouldThrottle(state, hb, event)) {
+      writeState(home, state);
+      return { status: 'throttled' };
+    }
+    state.last = { ...(state.last || {}), [key]: hb.time };
     writeState(home, state);
 
     appendToQueue(home, hb);

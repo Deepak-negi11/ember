@@ -5,9 +5,10 @@ import path from "node:path";
 // One client per process. Locally it is a SQLite file (data/ember.db); in
 // production set TURSO_DATABASE_URL + TURSO_AUTH_TOKEN and the same SQL runs
 // against Turso (hosted SQLite), which survives serverless deploys.
-const g = globalThis as unknown as { __ember?: { client: Client; ready: Promise<void> } };
+type Conn = { client: Client; ready: Promise<void>; schema: string };
+const g = globalThis as unknown as { __ember?: Conn };
 
-function open(): { client: Client; ready: Promise<void> } {
+function open(): Conn {
   const remote = process.env.TURSO_DATABASE_URL;
   let url: string;
   if (remote) url = remote;
@@ -23,11 +24,16 @@ function open(): { client: Client; ready: Promise<void> } {
     await client.execute("PRAGMA foreign_keys = ON");
     await migrate(client);
   })();
-  return { client, ready };
+  return { client, ready, schema: SCHEMA };
 }
 
 async function conn(): Promise<Client> {
   g.__ember ??= open();
+  // The client outlives hot reloads in `next dev`; migrate again when the code's schema changed.
+  if (g.__ember.schema !== SCHEMA) {
+    const { client } = g.__ember;
+    g.__ember = { client, ready: g.__ember.ready.then(() => migrate(client)), schema: SCHEMA };
+  }
   try {
     await g.__ember.ready;
   } catch (err) {
@@ -138,8 +144,13 @@ CREATE TABLE IF NOT EXISTS daily_breakdown (
   kind    TEXT NOT NULL CHECK (kind IN ('project', 'language', 'editor')),
   name    TEXT NOT NULL,
   seconds INTEGER NOT NULL,
+  -- Part of seconds credited to AI agents; lets leaderboards rank hands-on time per language.
+  ai_seconds INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (user_id, date, kind, name)
 );
+-- Leaderboard language filters read one kind over a date window across all users;
+-- without this they scan the whole table on every page view.
+CREATE INDEX IF NOT EXISTS daily_breakdown_kind_date ON daily_breakdown(kind, date);
 `;
 
 async function columns(c: Client | Transaction, table: string): Promise<string[]> {
@@ -151,8 +162,9 @@ async function columns(c: Client | Transaction, table: string): Promise<string[]
  * same on a local file and on Turso.
  *  v1 -> v2: users lose email/password columns and gain avatar_url.
  *  v2 -> v3: oauth_accounts also accepts the 'github' provider.
+ *  v3 -> v4: daily_breakdown gains ai_seconds (0 until `npm run backfill`).
  * SQLite cannot drop columns or change CHECK constraints in place, so affected
- * tables are rebuilt and their rows copied.
+ * tables are rebuilt and their rows copied. Added columns use ALTER TABLE.
  */
 async function migrate(c: Client) {
   const userCols = await columns(c, "users");
@@ -193,6 +205,9 @@ async function migrate(c: Client) {
     `);
   }
   await c.executeMultiple(SCHEMA);
+  if (!(await columns(c, "daily_breakdown")).includes("ai_seconds")) {
+    await c.execute("ALTER TABLE daily_breakdown ADD COLUMN ai_seconds INTEGER NOT NULL DEFAULT 0");
+  }
 }
 
 // ---- Query helpers -------------------------------------------------------------

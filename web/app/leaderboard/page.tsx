@@ -3,7 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowRight } from "@phosphor-icons/react/ssr";
 import { apiKeyInfo, currentUser } from "@/lib/auth.ts";
-import { boardLanguages, leaderboard, leaderboard24h, previousRanks } from "@/lib/stats.ts";
+import { AI_DAILY_CAP_SEC, boardLanguages, leaderboard, leaderboard24h, previousRanks, type BoardMode } from "@/lib/stats.ts";
 import { Champion } from "@/components/Champion.tsx";
 import { Card, btn } from "@/components/ui.tsx";
 import { LeaderRows } from "@/components/LeaderRows.tsx";
@@ -24,19 +24,25 @@ export default async function Leaderboard({ searchParams }: Props) {
   const sp = await searchParams;
   const key = sp.range === "30d" ? "30d" : sp.range === "24h" ? "24h" : "7d";
   const period = PERIODS[key];
+  const mode: BoardMode = sp.mode === "hands-on" ? "hands-on" : "all";
   const languages = await boardLanguages(period.days, 10);
   // Only accept languages that actually appear on the board.
   const lang = languages.find((l) => l.name === sp.lang)?.name;
   const [rows, prev, apiKey] = await Promise.all([
-    key === "24h" ? leaderboard24h(100, { language: lang }) : leaderboard(period.days, 100, { language: lang }),
+    key === "24h" ? leaderboard24h(100, { language: lang, mode }) : leaderboard(period.days, 100, { language: lang, mode }),
     key === "24h"
-      ? leaderboard24h(10_000, { language: lang, offsetHours: 24 }).then((r) => new Map(r.map((x) => [x.user_id, x.rank])))
-      : previousRanks(period.days, { language: lang }),
+      ? leaderboard24h(10_000, { language: lang, mode, offsetHours: 24 }).then((r) => new Map(r.map((x) => [x.user_id, x.rank])))
+      : previousRanks(period.days, { language: lang, mode }),
     apiKeyInfo(me.id),
   ]);
   const onBoard = rows.some((r) => r.user_id === me.id);
-  const href = (range: string, language?: string) =>
-    `/leaderboard?${new URLSearchParams({ ...(range !== "7d" ? { range } : {}), ...(language ? { lang: language } : {}) })}`.replace(/\?$/, "");
+  const href = (range: string, language?: string, m: BoardMode = mode) =>
+    `/leaderboard?${new URLSearchParams({
+      ...(range !== "7d" ? { range } : {}),
+      ...(language ? { lang: language } : {}),
+      ...(m === "hands-on" ? { mode: m } : {}),
+    })}`.replace(/\?$/, "");
+  const capHours = AI_DAILY_CAP_SEC / 3600;
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-14">
@@ -44,8 +50,24 @@ export default async function Leaderboard({ searchParams }: Props) {
         <div>
           <h1 className="font-display text-4xl font-medium tracking-tight sm:text-5xl">{lang ? `Top ${lang} developers` : "Leaderboard"}</h1>
           <p className="mt-2 max-w-[60ch] text-muted">
-            {lang ? `Ranked by time spent in ${lang} ${period.label}.` : "Ranked by tracked coding time, editors and AI agents combined."} Arrows show the change since {period.prev}.
+            {lang ? `Ranked by time spent in ${lang} ${period.label}` : "Ranked by tracked coding time"}
+            {mode === "hands-on" ? ", written by hand: AI-agent time is not counted." : `, with AI-agent time counted up to ${capHours}h a day.`}{" "}
+            {key !== "24h" && "Days end at each person's own midnight. "}Arrows show the change since {period.prev}.
           </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+        <div className="flex rounded-full border border-line bg-surface p-1 text-sm" role="tablist" aria-label="What counts">
+          {([["all", "Combined"], ["hands-on", "Hands-on"]] as const).map(([m, label]) => (
+            <Link
+              key={m}
+              href={href(key, lang, m)}
+              role="tab"
+              aria-selected={m === mode}
+              className={`rounded-full px-3.5 py-1 transition ${m === mode ? "bg-surface-2 text-text" : "text-muted hover:text-text"}`}
+            >
+              {label}
+            </Link>
+          ))}
         </div>
         <div className="flex rounded-full border border-line bg-surface p-1 text-sm" role="tablist" aria-label="Period">
           {(Object.keys(PERIODS) as (keyof typeof PERIODS)[]).map((k) => (
@@ -59,6 +81,7 @@ export default async function Leaderboard({ searchParams }: Props) {
               {PERIODS[k].tab}
             </Link>
           ))}
+        </div>
         </div>
       </div>
 

@@ -52,8 +52,8 @@ One key covers everything. It is stored in `~/.ember/config.json` (mode 0600).
 
 ```bash
 (cd extensions/vscode && npm install && npm run package)
-code --install-extension extensions/vscode/embertime-0.1.2.vsix
-cursor --install-extension extensions/vscode/embertime-0.1.2.vsix
+code --install-extension extensions/vscode/embertime-0.1.3.vsix
+cursor --install-extension extensions/vscode/embertime-0.1.3.vsix
 ```
 
 Then run **Ember: Set API Key** from the command palette. If your server is not on
@@ -82,8 +82,8 @@ return 404. Install both from this repo instead:
 
 ```bash
 npm install -g ./collectors/agent-hook        # the embertime CLI, from this folder
-(cd extensions/vscode && npm run package)     # builds embertime-0.1.2.vsix
-embertime setup --key ember_YOUR_KEY --vsix ./extensions/vscode/embertime-0.1.2.vsix
+(cd extensions/vscode && npm run package)     # builds embertime-0.1.3.vsix
+embertime setup --key ember_YOUR_KEY --vsix ./extensions/vscode/embertime-0.1.3.vsix
 ```
 
 After publishing (see PUBLISHING.md) nobody needs these: users run
@@ -93,7 +93,10 @@ After publishing (see PUBLISHING.md) nobody needs these: users run
 
 - Only writing code counts. Editors send a heartbeat when you type in a file (at most
   once every 2 minutes per file) or save it; agents send one when they change a file
-  (Write, Edit, MultiEdit, apply_patch, Cursor's file edits). Opening an editor,
+  (Write, Edit, MultiEdit, apply_patch, Cursor's file edits). A shell command run by
+  Claude Code or Codex counts too when it changed a file: the hook asks git for files
+  modified or added (not ignored) since the agent's previous step, at most 10 minutes
+  back. Opening an editor,
   switching files, starting an agent session, prompting or reading files adds no time,
   and the server ignores any non-writing heartbeat from older collectors.
 - All heartbeats for a day are merged into **one timeline**. Each gap between two
@@ -103,6 +106,10 @@ After publishing (see PUBLISHING.md) nobody needs these: users run
 - Agent heartbeats are tagged `ai`, so the UI shows hands-on vs AI-agent time.
 - Daily rollups are rebuilt from raw heartbeats for every day a batch touches.
   Re-sending a batch is a no-op (unique constraint), so client retries are safe.
+- Leaderboards: **Combined** counts AI-agent time up to 4 hours per day
+  (`AI_DAILY_CAP_SEC` in `web/lib/stats.ts`), so an agent left running can't top the
+  board; **Hands-on** counts no AI time. Personal stats are never capped. Weekly and
+  monthly boards use each person's own local days; the 24-hour board is rolling.
 - Heatmap colours use fixed thresholds (<30m, <2h, <4h, 4h+), so the same colour
   means the same thing on every profile.
 
@@ -119,7 +126,9 @@ After publishing (see PUBLISHING.md) nobody needs these: users run
 
 Sent: project name, language, branch, editor, timestamps, detected stack, and a
 keyed hash of the file path (for de-duplication). Never sent: code, prompts, tool
-output, raw file paths. Users can hide project names on their public profile.
+output, raw file paths. Users can hide project names on their public profile, and
+keep branch names local with `"send_branch": false` in `~/.ember/config.json` (all
+collectors), the `ember.sendBranch` editor setting, or `EMBER_SEND_BRANCH=0`.
 
 The path hash is HMAC-SHA256 under a random key that never leaves the machine
 (`~/.ember/entity.key`, mode 0600, shared by all collectors), so a guessed path
@@ -142,15 +151,40 @@ runs the real hook through a whole agent session and fails if anything else is s
 ```bash
 (cd web && npm test)                        # durations, streaks, parsing, ingest
 (cd extensions/vscode && npm test)          # stack detection, queue, heartbeat rule
-(cd collectors/agent-hook && npm test)      # payloads, queue/locking, installer
+(cd collectors/agent-hook && npm test)      # payloads, queue/locking, installer, privacy, shell writes
+bash scripts/release-check.sh               # what ships: see below
 ```
+
+## Release check
+
+`scripts/release-check.sh` (also run by `.github/workflows/release-check.yml` on every
+push, pull request and daily) checks the packages, not just the source:
+
+1. Packs the hook and runs the privacy test against the packed file.
+2. Builds the `.vsix` and fails if it holds anything beyond the expected files.
+3. Downloads what npm and Open VSX serve. A published version with the same number
+   but different files fails the check: bump the version.
+4. Uses [REA](https://github.com/morluto/rea) to list exported functions added, removed
+   or changed since the published release, and warns on new network call sites.
+
+## Upgrading the server
+
+Leaderboards rank hands-on time per language from `daily_breakdown.ai_seconds`, which
+the server adds on start-up and fills for new activity. Fill past days once after
+deploying (point it at production with `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN`):
+
+```bash
+cd web && npm run backfill
+```
+
+Until then, AI time on days before the upgrade counts as hands-on in the per-language
+boards only.
 
 ## Known limitations
 
-- The leaderboard cuts off on UTC calendar days, so its edges can differ by a few
-  hours from a user's local day.
 - The rate limiter is per process; use a shared store (e.g. Redis) if you run
   several server instances.
-- Leaderboard time includes AI-agent time. An agent left running scores points, so
-  a public deployment may want an "editor only" board or a daily cap.
+- Shell-command writes are credited by file time: a file you edit by hand while an
+  agent's command runs can be counted as AI time. Cursor Agent's shell commands are
+  not counted (it would need its shell hooks installed).
 - SQLite fits a single server. Move to Postgres before horizontal scaling.

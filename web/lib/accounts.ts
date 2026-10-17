@@ -1,4 +1,5 @@
 import { all, tx, type Q } from "./db.ts";
+import { forgetTimeZones } from "./stats.ts";
 
 const nowSec = () => Math.floor(Date.now() / 1000);
 
@@ -70,6 +71,7 @@ export function signInWithProfile(p: OAuthProfile, tz: string): Promise<{ userId
       twitter, p.provider === "github" ? p.handle : "", p.location.slice(0, 60), tz, nowSec(),
     );
     const userId = res.lastInsertRowid;
+    forgetTimeZones();
     await q.run(
       "INSERT INTO oauth_accounts (provider, provider_user_id, user_id, handle, created_at) VALUES (?, ?, ?, ?, ?)",
       p.provider, p.id, userId, p.handle, nowSec(),
