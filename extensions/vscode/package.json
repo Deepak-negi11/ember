@@ -72,7 +72,7 @@
     "package": "npx @vscode/vsce package --no-dependencies",
     "vscode:prepublish": "npm run typecheck && npm run build",
     "publish:vscode": "npx @vscode/vsce publish --no-dependencies",
-    "publish:openvsx": "npx ovsx publish --no-dependencies -p \"$OVSX_PAT\""
+    "publish:openvsx": "npx ovsx publish --no-dependencies"
   },
   "devDependencies": {
     "@types/node": "~18.19.130",
