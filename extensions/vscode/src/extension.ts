@@ -23,7 +23,7 @@ import { StackCache } from './stack';
 import { HeartbeatGate, detectEditor } from './tracker';
 import type { Editor, Heartbeat, Today } from './types';
 
-const VERSION = '0.1.1';
+const VERSION = '0.1.2';
 const SECRET_KEY = 'ember.apiKey';
 const QUEUE_STATE_KEY = 'ember.queue';
 const FLUSH_INTERVAL_MS = 30_000;

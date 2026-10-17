@@ -52,8 +52,8 @@ One key covers everything. It is stored in `~/.ember/config.json` (mode 0600).
 
 ```bash
 (cd extensions/vscode && npm install && npm run package)
-code --install-extension extensions/vscode/embertime-0.1.0.vsix
-cursor --install-extension extensions/vscode/embertime-0.1.0.vsix
+code --install-extension extensions/vscode/embertime-0.1.2.vsix
+cursor --install-extension extensions/vscode/embertime-0.1.2.vsix
 ```
 
 Then run **Ember: Set API Key** from the command palette. If your server is not on
@@ -82,8 +82,8 @@ return 404. Install both from this repo instead:
 
 ```bash
 npm install -g ./collectors/agent-hook        # the embertime CLI, from this folder
-(cd extensions/vscode && npm run package)     # builds embertime-0.1.0.vsix
-embertime setup --key ember_YOUR_KEY --vsix ./extensions/vscode/embertime-0.1.0.vsix
+(cd extensions/vscode && npm run package)     # builds embertime-0.1.2.vsix
+embertime setup --key ember_YOUR_KEY --vsix ./extensions/vscode/embertime-0.1.2.vsix
 ```
 
 After publishing (see PUBLISHING.md) nobody needs these: users run

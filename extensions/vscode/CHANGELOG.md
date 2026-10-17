@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- File paths are now hashed with a random key that stays on your machine (`~/.ember/entity.key`), so a guessed path can't be matched to a stored hash.
+
 ## 0.1.1
 
 - Only writing code counts: typing and saving. Opening, switching or scrolling through files no longer adds time.

@@ -2,7 +2,7 @@
   "name": "embertime",
   "displayName": "Ember: Coding Time Tracker",
   "description": "Track coding time in VS Code, Cursor and Windsurf. A yearly heatmap, languages, projects and a leaderboard. Never sends code or file paths.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "ember-dev",
   "license": "MIT",
   "icon": "icon.png",
