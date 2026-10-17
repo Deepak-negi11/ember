@@ -9,7 +9,8 @@
 //   * never writes to stdout for Claude Code / Codex (they may interpret it); for
 //     Cursor it prints the minimal JSON reply Cursor expects. Always exits 0
 //   * never sends file contents, raw paths or prompt text: files are reduced
-//     to sha1(absolute path) and the project to the git root's basename
+//     to an HMAC of the absolute path, keyed with a random per-machine secret
+//     (~/.ember/entity.key), and the project to the git root's basename
 //   * heartbeats are appended to ~/.ember/queue.jsonl before any network I/O,
 //     so nothing is lost when the server is down
 //
@@ -59,6 +60,7 @@ function paths(home) {
     state: path.join(home, 'hook-state.json'),
     log: path.join(home, 'hook.log'),
     lastError: path.join(home, 'last_error'),
+    entityKey: path.join(home, 'entity.key'),
   };
 }
 
@@ -409,8 +411,57 @@ export function extractFilePath(toolInput, cwd) {
   return path.resolve(cwd || process.cwd(), p);
 }
 
-export function sha1(text) {
-  return crypto.createHash('sha1').update(text).digest('hex');
+/**
+ * File identity sent as `entity`: HMAC-SHA256 of the absolute path under the
+ * per-machine key, cut to the 40 hex characters the server accepts. A plain hash
+ * of a path could be reversed by guessing likely paths; without the key it can't.
+ */
+export function entityHash(key, file) {
+  return crypto.createHmac('sha256', key).update(file).digest('hex').slice(0, 40);
+}
+
+const ENTITY_KEY_RE = /^[a-f0-9]{64}$/;
+
+function readEntityKey(file) {
+  try {
+    const key = fs.readFileSync(file, 'utf8').trim();
+    return ENTITY_KEY_RE.test(key) ? key : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The random key shared by every collector on this machine (mode 0600), created
+ * on first use. Concurrent first runs agree on one key: the first hard link wins.
+ * If it can't be stored, a one-off key is used: entities then differ between runs,
+ * which only weakens de-duplication, never privacy.
+ */
+export function loadEntityKey(home) {
+  const file = paths(home).entityKey;
+  const existing = readEntityKey(file);
+  if (existing) return existing;
+  const key = crypto.randomBytes(32).toString('hex');
+  const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  try {
+    fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(tmp, `${key}\n`, { mode: 0o600 });
+    try {
+      fs.linkSync(tmp, file);
+      return key;
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+      const winner = readEntityKey(file);
+      if (winner) return winner;
+      fs.renameSync(tmp, file); // existing file is corrupt: replace it
+      return key;
+    }
+  } catch (e) {
+    log(home, 'warn', `could not store entity key: ${e.message}`);
+    return key;
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
 }
 
 export function parsePayload(text) {
@@ -427,7 +478,7 @@ export function parsePayload(text) {
  * Build exactly one heartbeat from a hook payload. Only derived, non-sensitive
  * fields are copied: never prompt text, tool output, file contents or paths.
  */
-export function buildHeartbeat(payload, { agent, now = Date.now() / 1000, env = process.env } = {}) {
+export function buildHeartbeat(payload, { agent, now = Date.now() / 1000, env = process.env, entityKey } = {}) {
   // Claude Code and Codex send `cwd`; Cursor sends `workspace_roots` (and sets CURSOR_PROJECT_DIR).
   const roots = Array.isArray(payload.workspace_roots) ? payload.workspace_roots.filter((r) => typeof r === 'string' && r) : [];
   const cwd =
@@ -450,7 +501,7 @@ export function buildHeartbeat(payload, { agent, now = Date.now() / 1000, env = 
     extractFilePath(payload.tool_input, cwd) ||
     (typeof payload.file_path === 'string' && payload.file_path.trim() ? path.resolve(cwd, payload.file_path.trim()) : undefined);
   if (file) {
-    hb.entity = sha1(file);
+    hb.entity = entityHash(entityKey ?? loadEntityKey(emberHome(env)), file);
     const language = languageForPath(file);
     if (language) hb.language = language;
   }

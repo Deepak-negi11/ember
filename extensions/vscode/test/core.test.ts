@@ -2,12 +2,14 @@
 // heartbeat gate and the shared config file.
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { findGitRoot, readBranch } from '../src/git';
 import { languageName } from '../src/languages';
 import { HeartbeatGate, detectEditor } from '../src/tracker';
 import { readSharedConfig, validateApiKey, writeSharedConfig } from '../src/config';
+import { entityHash, loadEntityKey } from '../src/entity';
 import { tempProject } from './helpers';
 
 const KEY = `ember_${'0123456789abcdef'.repeat(2)}01234567`;
@@ -70,6 +72,25 @@ test('shared config: write with 0600, preserve api_url and unknown fields', () =
   writeSharedConfig({ api_key: KEY, api_url: 'http://localhost:3000' }, fresh);
   assert.deepEqual(readSharedConfig(fresh), { api_key: KEY, api_url: 'http://localhost:3000' });
   assert.deepEqual(readSharedConfig(path.join(tempProject(), 'none')), {});
+});
+
+test('entity: keyed 40-hex hash, one shared 0600 key file, corrupt key replaced', () => {
+  const file = '/Users/someone/work/app/src/index.ts';
+  const key = 'ab'.repeat(32);
+  assert.match(entityHash(key, file), /^[a-f0-9]{40}$/);
+  assert.notEqual(entityHash(key, file), crypto.createHash('sha1').update(file).digest('hex'));
+  assert.notEqual(entityHash(key, file), entityHash('cd'.repeat(32), file));
+  // The agent hook computes HMAC-SHA256(key, path)[:40] too; pin one value so both stay in sync.
+  assert.equal(entityHash(key, file), crypto.createHmac('sha256', key).update(file).digest('hex').slice(0, 40));
+
+  const dir = path.join(tempProject(), '.ember');
+  const created = loadEntityKey(dir);
+  assert.match(created, /^[a-f0-9]{64}$/);
+  assert.equal(fs.statSync(path.join(dir, 'entity.key')).mode & 0o777, 0o600);
+  assert.equal(loadEntityKey(dir), created);
+  assert.deepEqual(fs.readdirSync(dir), ['entity.key']);
+  fs.writeFileSync(path.join(dir, 'entity.key'), 'garbage');
+  assert.notEqual(loadEntityKey(dir), created);
 });
 
 test('API key validation', () => {

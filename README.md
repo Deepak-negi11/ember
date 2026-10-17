@@ -7,7 +7,7 @@ profiles, and a weekly leaderboard whose #1 gets their quote featured.
 
 ```
 ember/
-  web/                     Next.js 16 app + API (SQLite via node:sqlite, no native deps)
+  web/                     Next.js 16 app + API (libSQL: a local SQLite file, or Turso in production)
   extensions/vscode/       Extension for VS Code, Cursor, Windsurf, VSCodium
   collectors/agent-hook/   Hook script + installer for Claude Code and Codex
 ```
@@ -34,15 +34,17 @@ can still try the app locally: `EMBER_DEV_LOGIN=1` adds a "sign in as" picker to
 
 Open http://localhost:3000, sign in, then **Settings → Create API key**.
 `npm run seed` adds 10 fictional demo users with a year of generated activity
-(they can't be signed into). Skip it for a clean install. The database lives in
-`web/data/ember.db`; delete that file to reset.
+(they can't be signed into). Skip it for a clean install. Locally the database is
+the SQLite file `web/data/ember.db`; delete it to reset. Serverless hosts can't keep
+that file, so production sets `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` (see
+`web/.env.example`); on Vercel the app refuses to start without them.
 
 ## Connect your tools
 
-The website serves real installers: run `npm run collectors` in `web/` once to
-build `public/downloads/ember-vscode.vsix` and `ember-agent-hook.tgz`. The
-landing page and Settings then show **Download** buttons and copy-paste commands
-that contain this server's actual address.
+Users install the published collectors (`npm install -g embertime`, and the
+`ember-dev.embertime` extension from the Marketplace or Open VSX); the /setup page
+shows the commands. The website serves no installer files. To run collectors
+built from this repo, use the commands below.
 
 One key covers everything. It is stored in `~/.ember/config.json` (mode 0600).
 
@@ -116,8 +118,13 @@ After publishing (see PUBLISHING.md) nobody needs these: users run
 ## Privacy
 
 Sent: project name, language, branch, editor, timestamps, detected stack, and a
-SHA-1 of the file path (for de-duplication). Never sent: code, prompts, tool
+keyed hash of the file path (for de-duplication). Never sent: code, prompts, tool
 output, raw file paths. Users can hide project names on their public profile.
+
+The path hash is HMAC-SHA256 under a random key that never leaves the machine
+(`~/.ember/entity.key`, mode 0600, shared by all collectors), so a guessed path
+can't be checked against stored hashes. `collectors/agent-hook/test/privacy.test.mjs`
+runs the real hook through a whole agent session and fails if anything else is sent.
 
 ## Security notes
 

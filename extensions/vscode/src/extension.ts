@@ -1,12 +1,13 @@
 // Ember for VS Code-compatible editors (VS Code, Cursor, Windsurf, VSCodium).
 //
-// Privacy: heartbeats carry sha1(absolute path) as `entity`, the git root's
-// basename as `project`, plus language/branch/stack. File contents and raw
-// paths never leave the machine.
+// Privacy: heartbeats carry a keyed hash of the absolute path as `entity` (see
+// entity.ts), the git root's basename as `project`, plus language/branch/stack.
+// File contents and raw paths never leave the machine.
 import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 import * as path from 'path';
 import { EmberClient, UnauthorizedError, errorMessage } from './api';
+import { entityHash, loadEntityKey } from './entity';
 import {
   DEFAULT_API_URL,
   configPath,
@@ -47,6 +48,7 @@ class Ember implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
   private timers: NodeJS.Timeout[] = [];
 
+  private entityKey: string | undefined;
   private today: Today | undefined;
   private lastSync: SyncStatus | undefined;
   private rejectedKey: string | undefined;
@@ -157,7 +159,7 @@ class Ember implements vscode.Disposable {
       category: 'coding',
       // Every heartbeat comes from writing code; the server only counts these.
       is_write: true,
-      entity: crypto.createHash('sha1').update(file).digest('hex'),
+      entity: entityHash(this.loadEntityKey(), file),
     };
     const language = languageName(doc.languageId);
     if (language) hb.language = language;
@@ -169,6 +171,19 @@ class Ember implements vscode.Disposable {
     const stack = this.stacks.get(stackRoot);
     if (stack.length) hb.stack = stack;
     return hb;
+  }
+
+  /** Shared key from ~/.ember/entity.key; a session-only key if it can't be stored. */
+  private loadEntityKey(): string {
+    if (!this.entityKey) {
+      try {
+        this.entityKey = loadEntityKey();
+      } catch (e) {
+        this.log(`could not store entity key, using a session-only key: ${errorMessage(e)}`);
+        this.entityKey = crypto.randomBytes(32).toString('hex');
+      }
+    }
+    return this.entityKey;
   }
 
   private gitRoot(dir: string): string | undefined {

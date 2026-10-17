@@ -41,7 +41,8 @@ once every 2 minutes per file) or save it. Opening, switching between or
 scrolling through files sends nothing, so an editor left open adds no time. It contains the
 time, the project (git root folder name), the branch, the language, the editor,
 the detected tech stack (e.g. `Next.js, React, Tailwind CSS, TypeScript`) and
-`sha1(absolute file path)`. File contents and file paths are never sent. Only
+a hash of the absolute file path, keyed with a random secret stored only on your
+machine (`~/.ember/entity.key`). File contents and file paths are never sent. Only
 `file:` documents are tracked. Output panels, untitled buffers and diff views
 are ignored.
 

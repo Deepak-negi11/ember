@@ -10,7 +10,6 @@
     "seed": "node scripts/seed.ts",
     "test": "node --test --test-concurrency=1 lib/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "collectors": "bash scripts/package-collectors.sh",
     "backfill": "node scripts/backfill.ts"
   },
   "engines": {

@@ -14,10 +14,13 @@ import {
   languageForPath,
   parseArgs,
   cursorReply,
+  entityHash,
+  loadEntityKey,
 } from '../ember-hook.mjs';
 import { tmpDir, makeRepo } from './helpers.mjs';
 
-const sha1 = (s) => crypto.createHash('sha1').update(s).digest('hex');
+const entityKey = 'ab'.repeat(32);
+const entity = (file) => entityHash(entityKey, file);
 
 test('Claude Code PostToolUse Edit payload -> heartbeat', () => {
   const root = makeRepo(path.join(tmpDir(), 'my-app'), {
@@ -39,7 +42,7 @@ test('Claude Code PostToolUse Edit payload -> heartbeat', () => {
       tool_response: { success: true },
     }),
   );
-  const hb = buildHeartbeat(payload, { agent: 'claude-code', now: 1700000000.5 });
+  const hb = buildHeartbeat(payload, { agent: 'claude-code', now: 1700000000.5, entityKey });
   assert.deepEqual(hb, {
     time: 1700000000.5,
     project: 'my-app',
@@ -47,7 +50,7 @@ test('Claude Code PostToolUse Edit payload -> heartbeat', () => {
     category: 'ai',
     is_write: true,
     branch: 'feature/login',
-    entity: sha1(path.join(root, 'src/app/page.tsx')),
+    entity: entity(path.join(root, 'src/app/page.tsx')),
     language: 'TSX',
     stack: ['Next.js', 'React', 'Tailwind CSS', 'TypeScript'],
   });
@@ -56,10 +59,41 @@ test('Claude Code PostToolUse Edit payload -> heartbeat', () => {
   assert.ok(!json.includes(root), 'no raw paths');
 });
 
+test('entity is a keyed hash: 40 hex, not a plain sha1 of the path, differs per key', () => {
+  const file = '/Users/someone/work/app/src/index.ts';
+  const e = entityHash(entityKey, file);
+  assert.match(e, /^[a-f0-9]{40}$/, 'server accepts exactly 40 hex characters');
+  assert.notEqual(e, crypto.createHash('sha1').update(file).digest('hex'), 'not guessable from the path alone');
+  assert.notEqual(e, entityHash('cd'.repeat(32), file), 'another machine gets another entity');
+  assert.equal(e, entityHash(entityKey, file), 'stable for de-duplication');
+});
+
+test('loadEntityKey creates one 0600 key, reuses it, and replaces a corrupt one', () => {
+  const home = path.join(tmpDir(), '.ember');
+  const key = loadEntityKey(home);
+  assert.match(key, /^[a-f0-9]{64}$/);
+  const file = path.join(home, 'entity.key');
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  assert.equal(loadEntityKey(home), key, 'second run reads the same key');
+  assert.deepEqual(fs.readdirSync(home), ['entity.key'], 'no temp files left behind');
+
+  fs.writeFileSync(file, 'garbage');
+  const replaced = loadEntityKey(home);
+  assert.match(replaced, /^[a-f0-9]{64}$/);
+  assert.equal(loadEntityKey(home), replaced);
+});
+
+test('buildHeartbeat without a key uses the key file in EMBER_HOME', () => {
+  const home = path.join(tmpDir(), '.ember');
+  const root = makeRepo(path.join(tmpDir(), 'keyed'));
+  const hb = buildHeartbeat({ cwd: root, tool_name: 'Write', tool_input: { file_path: 'a.ts' } }, { agent: 'claude-code', env: { EMBER_HOME: home } });
+  assert.equal(hb.entity, entityHash(loadEntityKey(home), path.join(root, 'a.ts')));
+});
+
 test('relative file_path is resolved against cwd before hashing', () => {
   const root = makeRepo(path.join(tmpDir(), 'rel'));
-  const hb = buildHeartbeat({ cwd: root, tool_name: 'Write', tool_input: { file_path: 'lib/a.py' } }, { agent: 'claude-code' });
-  assert.equal(hb.entity, sha1(path.join(root, 'lib/a.py')));
+  const hb = buildHeartbeat({ cwd: root, tool_name: 'Write', tool_input: { file_path: 'lib/a.py' } }, { agent: 'claude-code', entityKey });
+  assert.equal(hb.entity, entity(path.join(root, 'lib/a.py')));
   assert.equal(hb.language, 'Python');
 });
 
@@ -90,12 +124,12 @@ test('Codex apply_patch payload -> heartbeat with first patched file', () => {
   const payload = parsePayload(
     JSON.stringify({ session_id: 's', cwd: root, hook_event_name: 'PostToolUse', tool_name: 'apply_patch', tool_input: { command: patch } }),
   );
-  const hb = buildHeartbeat(payload, { agent: 'codex' });
+  const hb = buildHeartbeat(payload, { agent: 'codex', entityKey });
   assert.equal(hb.editor, 'codex');
   assert.equal(hb.category, 'ai');
   assert.equal(hb.is_write, true);
   assert.equal(hb.language, 'Rust');
-  assert.equal(hb.entity, sha1(path.join(root, 'src/main.rs')));
+  assert.equal(hb.entity, entity(path.join(root, 'src/main.rs')));
   assert.deepEqual(hb.stack, ['Axum', 'Tokio', 'Rust']);
   assert.ok(!JSON.stringify(hb).includes('fn new'));
 });
@@ -187,7 +221,7 @@ test('cursor agent: project from workspace_roots, language and write from afterF
   const root = makeRepo(path.join(tmpDir(), 'cursor-proj'), { branch: 'feat/x', files: { 'package.json': '{"dependencies":{"next":"16"}}' } });
   const hb = buildHeartbeat(
     { hook_event_name: 'afterFileEdit', workspace_roots: [root], file_path: 'src/app.tsx', edits: [{ old_string: 'secret', new_string: 'code' }] },
-    { agent: 'cursor-agent', now: 1000, env: {} },
+    { agent: 'cursor-agent', now: 1000, env: {}, entityKey },
   );
   assert.equal(hb.editor, 'cursor-agent');
   assert.equal(hb.category, 'ai');
@@ -195,7 +229,7 @@ test('cursor agent: project from workspace_roots, language and write from afterF
   assert.equal(hb.branch, 'feat/x');
   assert.equal(hb.language, 'TSX');
   assert.equal(hb.is_write, true);
-  assert.equal(hb.entity, crypto.createHash('sha1').update(path.join(root, 'src/app.tsx')).digest('hex'));
+  assert.equal(hb.entity, entity(path.join(root, 'src/app.tsx')));
   assert.ok(hb.stack.includes('Next.js'));
   // Edit contents never leave the machine.
   assert.ok(!JSON.stringify(hb).includes('secret'));
