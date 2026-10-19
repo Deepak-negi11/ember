@@ -80,7 +80,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
         <section className="rise mb-10" style={{ ["--d" as string]: 1 }} aria-labelledby="board-title">
           <div className="mb-4 flex items-end justify-between gap-3">
             <div>
-              <h2 id="board-title" className="font-display text-2xl font-medium tracking-tight">Coding time this week</h2>
+              <h2 id="board-title" className="font-display text-2xl font-medium tracking-tight">Coding this week</h2>
               <p className="mt-1 text-sm text-muted">
                 {rank ? <>You are <span className="num font-semibold text-text">#{rank.rank}</span> of {rank.of}.{rank.rank > 1 && <> {formatDuration(board[rank.rank - 2].seconds - board[rank.rank - 1].seconds)} behind #{rank.rank - 1}.</>}</> : "Track some time this week to get on the board."}
               </p>

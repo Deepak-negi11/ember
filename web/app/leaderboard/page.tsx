@@ -3,9 +3,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowRight } from "@phosphor-icons/react/ssr";
 import { apiKeyInfo, currentUser } from "@/lib/auth.ts";
-import { CODING_MODE, aiLeaderboard, boardLanguages, leaderboard, previousAiRanks, previousRanks, type AiSort } from "@/lib/stats.ts";
+import { CODING_MODE, aiLeaderboard, boardLanguages, leaderboard, previousAiRanks, previousRanks } from "@/lib/stats.ts";
 import { formatDuration } from "@/lib/time.ts";
-import { formatCost, formatTokens, modelName } from "@/lib/usage.ts";
+import { formatTokens, modelName } from "@/lib/usage.ts";
 import { AiLeaderRows } from "@/components/AiLeaderRows.tsx";
 import { BoardMenu, type BoardOption } from "@/components/BoardMenu.tsx";
 import { Champion } from "@/components/Champion.tsx";
@@ -22,12 +22,10 @@ const PERIODS = {
 type PeriodKey = keyof typeof PERIODS;
 
 const BOARDS = {
-  coding: { label: "Coding time", description: "Time each person spent writing code themselves." },
-  ai: { label: "AI usage", description: "Tokens, estimated spend and agent time from Claude Code and Codex." },
+  coding: { label: "Coding", description: "Time each person spent writing code themselves." },
+  ai: { label: "Agents", description: "Tokens and estimated spend from Claude Code and Codex." },
 } as const;
 type BoardKey = keyof typeof BOARDS;
-
-const AI_SORTS: [AiSort, string][] = [["tokens", "Tokens"], ["cost", "Spend"], ["time", "Agent time"]];
 
 type Props = { searchParams: Promise<Record<string, string | undefined>> };
 
@@ -60,17 +58,14 @@ export default async function Leaderboard({ searchParams }: Props) {
   // "24h" was the rolling window this replaced; old links land on Today.
   const key: PeriodKey = sp.range === "30d" ? "30d" : sp.range === "today" || sp.range === "24h" ? "today" : "7d";
   const period = PERIODS[key];
-  const sort: AiSort = sp.sort === "cost" || sp.sort === "time" ? sp.sort : "tokens";
 
-  const href = (o: { board?: BoardKey; range?: PeriodKey; lang?: string; sort?: AiSort }) => {
+  const href = (o: { board?: BoardKey; range?: PeriodKey; lang?: string }) => {
     const b = o.board ?? board;
     const range = o.range ?? key;
-    const s = o.sort ?? sort;
     const q = new URLSearchParams({
       ...(b !== "coding" ? { board: b } : {}),
       ...(range !== "7d" ? { range } : {}),
       ...(b === "coding" && o.lang ? { lang: o.lang } : {}),
-      ...(b === "ai" && s !== "tokens" ? { sort: s } : {}),
     });
     return `/leaderboard${q.size ? `?${q}` : ""}`;
   };
@@ -80,23 +75,21 @@ export default async function Leaderboard({ searchParams }: Props) {
   const apiKey = await apiKeyInfo(me.id);
   const resetNote = key === "today" ? "Today resets at midnight in each person's own time zone." : "Days end at each person's own midnight.";
 
-  let header: { title: string; subtitle: string; controls?: React.ReactNode };
+  let header: { title: string; subtitle: string };
   let body: React.ReactNode;
   let onBoard: boolean;
 
   if (board === "ai") {
-    const [rows, prev] = await Promise.all([aiLeaderboard(period.days, 100, { sort }), previousAiRanks(period.days, sort)]);
+    const [rows, prev] = await Promise.all([aiLeaderboard(period.days, 100), previousAiRanks(period.days)]);
     onBoard = rows.some((r) => r.user_id === me.id);
-    const by = { tokens: "tokens used", cost: "estimated spend at API list prices", time: "time agents spent editing files" }[sort];
     header = {
       title: BOARDS.ai.label,
-      subtitle: `Ranked by ${by} ${period.label}, from the Claude Code and Codex hooks. ${resetNote} Arrows compare with ${period.prev}.`,
-      controls: <Tabs label="Rank by" items={AI_SORTS.map(([s, label]) => ({ key: s, label, href: href({ sort: s }), active: s === sort }))} />,
+      subtitle: `Ranked by AI tokens used ${period.label} in Claude Code and Codex, with the estimated spend under each. ${resetNote} Arrows compare with ${period.prev}.`,
     };
     const top = rows[0];
     body = rows.length === 0 ? (
       <Card className="p-10 text-center">
-        <p className="text-lg font-medium">No AI usage tracked {period.label} yet.</p>
+        <p className="text-lg font-medium">No agent tokens tracked {period.label} yet.</p>
         <p className="mx-auto mt-2 max-w-[52ch] text-muted">
           Token counts come from the Claude Code and Codex hooks: only the model name and token numbers, never prompts or code.
         </p>
@@ -107,17 +100,13 @@ export default async function Leaderboard({ searchParams }: Props) {
         <Champion
           row={top}
           period={period.label}
-          stat={sort === "cost" ? `${formatCost(top.cost_micros)} est.` : sort === "time" ? formatDuration(top.ai_seconds) : `${formatTokens(top.tokens)} tokens`}
+          stat={`${formatTokens(top.tokens)} tokens`}
           chips={top.models.map((m) => ({ name: modelName(m.name), value: formatTokens(m.tokens) }))}
-          chipsTitle={top.models.length ? `Models ${period.label}` : `Agents ${period.label}`}
+          chipsTitle={`Models ${period.label}`}
         />
-        <p className="mb-2 mt-6 flex justify-end px-1 text-xs text-faint">
-          {(() => {
-            const [first, second] = AI_SORTS.filter(([s]) => s !== sort).map(([, l]) => (l === "Spend" ? "est. spend" : l.toLowerCase()));
-            return <span>Small print under each: {first}<span className="hidden sm:inline"> · {second}</span></span>;
-          })()}
-        </p>
-        <AiLeaderRows rows={rows} meId={me.id} prevRanks={prev} sort={sort} />
+        <div className="mt-6">
+          <AiLeaderRows rows={rows} meId={me.id} prevRanks={prev} />
+        </div>
         <p className="mt-4 max-w-[70ch] text-xs leading-relaxed text-faint">
           Spend is what the tokens would cost at standard API list prices. Subscriptions such as Claude Max or ChatGPT plans bill differently, so it is not what anyone paid.
         </p>
@@ -127,7 +116,7 @@ export default async function Leaderboard({ searchParams }: Props) {
     const languages = await boardLanguages(period.days, 10);
     // Only accept languages that actually appear on the board.
     const lang = languages.find((l) => l.name === sp.lang)?.name;
-    // Time people wrote code themselves; agent work is ranked on the AI usage board.
+    // Time people wrote code themselves; agent work is ranked on the Agents board.
     const [rows, prev] = await Promise.all([
       leaderboard(period.days, 100, { language: lang, mode: CODING_MODE }),
       previousRanks(period.days, { language: lang, mode: CODING_MODE }),
@@ -193,8 +182,8 @@ export default async function Leaderboard({ searchParams }: Props) {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-14">
-      {/* z-20: the board menu must open over the cards below, which are their own stacking contexts. */}
-      <div className="rise relative z-20 mb-8">
+      {/* z-10: the board menu opens over the cards below (their own stacking contexts) but under the site header. */}
+      <div className="rise relative z-10 mb-8">
         <p className="mb-2 text-sm font-medium text-muted">Leaderboard</p>
         {/* Title and description on the left, the period (and sort) tabs pinned to the right. */}
         <div className="grid gap-x-8 gap-y-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
@@ -203,9 +192,8 @@ export default async function Leaderboard({ searchParams }: Props) {
             {header.title !== BOARDS[board].label && <p className="mt-3 font-display text-xl font-medium tracking-tight">{header.title}</p>}
             <p className="mt-3 max-w-[56ch] text-pretty text-muted">{header.subtitle}</p>
           </div>
-          <div className="flex flex-wrap gap-2 lg:flex-col lg:items-end">
+          <div className="justify-self-start lg:justify-self-end">
             <Tabs label="Period" items={periodTabs} />
-            {header.controls}
           </div>
         </div>
       </div>

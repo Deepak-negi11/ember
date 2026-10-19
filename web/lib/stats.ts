@@ -480,6 +480,8 @@ export interface AiLeaderRow {
   models: { name: string; tokens: number; cost_micros: number }[];
   /** Agents that reported usage or time, most tokens first. */
   agents: string[];
+  /** The agent behind this person's most recent token usage, or null. */
+  current_agent: string | null;
 }
 
 const AI_ORDER: Record<AiSort, string> = {
@@ -504,7 +506,7 @@ export async function aiLeaderboard(
   if (win.empty) return [];
   const from = `JOIN users u ON u.id = t.user_id JOIN win w ON w.tz = u.timezone`;
   const inWindow = `t.date BETWEEN w.d_from AND w.d_to`;
-  const rows = await all<Omit<AiLeaderRow, "rank" | "models" | "agents">>(
+  const rows = await all<Omit<AiLeaderRow, "rank" | "models" | "agents" | "current_agent">>(
     `WITH ${win.sql},
      x AS (
        SELECT t.user_id, t.input + t.output + t.cache_read + t.cache_write AS tokens, t.output, t.cost_micros, 0 AS ai_seconds
@@ -516,16 +518,17 @@ export async function aiLeaderboard(
             SUM(x.tokens) AS tokens, SUM(x.output) AS output, SUM(x.cost_micros) AS cost_micros, SUM(x.ai_seconds) AS ai_seconds
        FROM x JOIN users u ON u.id = x.user_id
       GROUP BY u.id
-      HAVING ${sort === "time" ? "SUM(x.ai_seconds) > 0" : "SUM(x.tokens) > 0 OR SUM(x.ai_seconds) > 0"}
+      HAVING ${sort === "time" ? "SUM(x.ai_seconds) > 0" : "SUM(x.tokens) > 0"}
       ORDER BY ${AI_ORDER[sort]}, u.username ASC
       LIMIT ?`,
     ...win.params, limit,
   );
   const models = new Map<number, AiLeaderRow["models"]>();
   const agents = new Map<number, string[]>();
+  const current = new Map<number, string>();
   if (rows.length && !opts.ranksOnly) {
     const ids = rows.map((r) => r.user_id);
-    const [modelRows, agentRows] = await Promise.all([
+    const [modelRows, agentRows, latest] = await Promise.all([
       all<{ user_id: number; name: string; tokens: number; cost_micros: number }>(
         `WITH ${win.sql}
          SELECT t.user_id, t.model AS name, SUM(t.input + t.output + t.cache_read + t.cache_write) AS tokens, SUM(t.cost_micros) AS cost_micros
@@ -546,11 +549,22 @@ export async function aiLeaderboard(
          ) GROUP BY user_id, name ORDER BY user_id, tokens DESC`,
         ...win.params, ...ids, ...ids,
       ),
+      // Latest record per person (any day): the agent they are using now.
+      all<{ user_id: number; agent: string }>(
+        `SELECT a.user_id, a.agent FROM ai_usage a
+          WHERE a.user_id IN (${ids.map(() => "?").join(",")})
+            AND a.time = (SELECT MAX(b.time) FROM ai_usage b WHERE b.user_id = a.user_id)
+          ORDER BY a.rowid`, // on a tie, the last one stored wins (Map.set below)
+        ...ids,
+      ),
     ]);
+    for (const l of latest) current.set(l.user_id, l.agent);
     for (const m of modelRows) models.set(m.user_id, [...(models.get(m.user_id) ?? []), { name: m.name, tokens: m.tokens, cost_micros: m.cost_micros }]);
     for (const a of agentRows) agents.set(a.user_id, [...(agents.get(a.user_id) ?? []), a.name]);
   }
-  return rows.map((r, i) => ({ ...r, rank: i + 1, models: models.get(r.user_id) ?? [], agents: agents.get(r.user_id) ?? [] }));
+  return rows.map((r, i) => ({
+    ...r, rank: i + 1, models: models.get(r.user_id) ?? [], agents: agents.get(r.user_id) ?? [], current_agent: current.get(r.user_id) ?? null,
+  }));
 }
 
 /** Rank each user held on the AI board in the previous window, for ▲/▼ movement. */

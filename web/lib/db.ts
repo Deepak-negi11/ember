@@ -168,6 +168,8 @@ CREATE TABLE IF NOT EXISTS ai_usage (
   PRIMARY KEY (user_id, id)
 );
 CREATE INDEX IF NOT EXISTS ai_usage_user_day ON ai_usage(user_id, local_date);
+-- Each person's latest record, for the agent they are using now.
+CREATE INDEX IF NOT EXISTS ai_usage_user_time ON ai_usage(user_id, time);
 
 -- Rollup of ai_usage per day, agent and model, with the estimated cost at list
 -- prices (lib/usage.ts). Rebuilt from ai_usage by recomputeAiDay.

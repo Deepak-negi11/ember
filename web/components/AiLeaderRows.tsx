@@ -1,35 +1,23 @@
 import Link from "next/link";
-import type { AiLeaderRow, AiSort } from "@/lib/stats.ts";
-import { formatDuration } from "@/lib/time.ts";
+import type { AiLeaderRow } from "@/lib/stats.ts";
 import { formatCost, formatTokens, modelName } from "@/lib/usage.ts";
 import { Avatar, EDITOR_NAMES } from "./ui.tsx";
 import { GitHubMark, XMark } from "./BrandIcons.tsx";
 import { Movement } from "./LeaderRows.tsx";
 
-/** The three numbers every row shows; the ranked one is large, the others sit under it. */
-function metrics(r: AiLeaderRow) {
-  return {
-    tokens: { value: formatTokens(r.tokens), label: "tokens" },
-    cost: { value: formatCost(r.cost_micros), label: "est. spend" },
-    time: { value: formatDuration(r.ai_seconds), label: "agent time" },
-  } satisfies Record<AiSort, { value: string; label: string }>;
-}
-
-/** Ranked rows for the AI usage board. */
-export function AiLeaderRows({ rows, meId, prevRanks, sort }: { rows: AiLeaderRow[]; meId?: number; prevRanks?: Map<number, number>; sort: AiSort }) {
+/** Ranked rows for the Agents board: tokens, with the estimated spend under them. */
+export function AiLeaderRows({ rows, meId, prevRanks }: { rows: AiLeaderRow[]; meId?: number; prevRanks?: Map<number, number> }) {
   return (
     <ol className="overflow-hidden rounded-2xl border border-line bg-surface">
       {rows.map((r, i) => {
-        const m = metrics(r);
-        const others = (Object.keys(m) as AiSort[]).filter((k) => k !== sort);
-        const agents = r.agents.map((a) => EDITOR_NAMES[a] ?? a).join(" + ");
+        const agent = r.current_agent ? (EDITOR_NAMES[r.current_agent] ?? r.current_agent) : "";
         return (
           <li
             key={r.user_id}
             className="rise relative border-line transition-colors hover:bg-surface-2 [&:not(:first-child)]:border-t"
             style={{ ["--d" as string]: Math.min(i, 12) }}
           >
-            <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3.5 sm:grid-cols-[3rem_minmax(0,1fr)_minmax(0,15rem)_8.5rem] sm:px-6">
+            <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3.5 sm:grid-cols-[3rem_minmax(0,1fr)_minmax(0,15rem)_6.5rem] sm:px-6">
               <span className="flex flex-col items-start leading-none">
                 <span className={`num text-lg font-semibold ${r.rank <= 3 ? "text-accent-text" : "text-faint"}`}>{r.rank}</span>
                 {prevRanks && <span className="mt-1"><Movement now={r.rank} before={prevRanks.get(r.user_id)} /></span>}
@@ -55,7 +43,10 @@ export function AiLeaderRows({ rows, meId, prevRanks, sort }: { rows: AiLeaderRo
                       )}
                     </span>
                   </span>
-                  <span className="block truncate text-sm text-muted">@{r.username}{agents && ` · ${agents}`}</span>
+                  <span className="block truncate text-sm text-muted">
+                    @{r.username}
+                    {agent && <> · <span title="Agent used most recently">{agent}</span></>}
+                  </span>
                 </span>
               </span>
               <span className="hidden min-w-0 flex-wrap justify-end gap-1.5 sm:flex" aria-label="Models used">
@@ -67,11 +58,11 @@ export function AiLeaderRows({ rows, meId, prevRanks, sort }: { rows: AiLeaderRo
                 {r.models.length > 2 && <span className="rounded-lg px-1 py-0.5 text-xs text-faint">+{r.models.length - 2}</span>}
               </span>
               <span className="text-right">
-                <span className="num block font-semibold" title={m[sort].label}>{m[sort].value}</span>
-                {/* Narrow screens keep one secondary number so names have room. */}
-                <span className="num mt-0.5 block whitespace-nowrap text-xs text-faint">
-                  <span title={m[others[0]].label}>{m[others[0]].value}</span>
-                  <span className="hidden sm:inline" title={m[others[1]].label}> · {m[others[1]].value}</span>
+                <span className="num block whitespace-nowrap font-semibold">
+                  {formatTokens(r.tokens)}<span className="sr-only"> tokens</span>
+                </span>
+                <span className="num mt-0.5 block whitespace-nowrap text-xs text-faint" title="Estimated spend at API list prices">
+                  {formatCost(r.cost_micros)}<span className="sr-only"> estimated spend</span>
                 </span>
               </span>
             </div>

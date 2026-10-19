@@ -215,10 +215,13 @@ test("token usage is idempotent, dated in the user's zone, and ranks the AI boar
   assert.equal(row.tokens, 9_650_000);
   assert.deepEqual(row.models.map((m) => m.name), ["claude-haiku-5-5", "gpt-6-luna"]);
   assert.deepEqual(row.agents, ["claude-code", "codex"]);
+  assert.equal(row.current_agent, "codex", "the agent of the latest record");
+  assert.equal((await aiLeaderboard(7, 100)).find((r) => r.username === "pricey")!.current_agent, "claude-code");
   // Haiku 5.5: 9M cache reads x $0.01 + 100K out x $0.50; Luna: 500K in x $0.10 + 50K out x $0.50.
   assert.equal(row.cost_micros, 90_000 + 50_000 + 50_000 + 25_000);
 
-  // Agent time alone (Cursor's agent sends no tokens) still counts on the board.
+  // The tokens board lists only people with tokens; agent time alone ranks only when sorting by time.
+  assert.ok(!(await aiLeaderboard(7, 100)).some((r) => r.username === "bot"));
   assert.ok((await aiLeaderboard(7, 100, { sort: "time" })).some((r) => r.username === "bot"));
 
   const today = localDate(now - 60, "UTC");

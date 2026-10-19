@@ -57,11 +57,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body className="font-sans">
-        <a href="#main" className="sr-only rounded-full bg-ink px-4 py-2 text-paper focus:not-sr-only focus:fixed focus:left-4 focus:top-24 focus:z-30">
+        <a href="#main" className="sr-only rounded-full bg-ink px-4 py-2 text-paper focus:not-sr-only focus:fixed focus:left-4 focus:top-24 focus:z-50">
           Skip to content
         </a>
 
-        <header className="fixed inset-x-0 top-0 z-20 px-3 pt-3 sm:px-4 sm:pt-4">
+        <header className="fixed inset-x-0 top-0 z-40 px-3 pt-3 sm:px-4 sm:pt-4">
           <nav className="mx-auto flex h-16 max-w-6xl min-w-0 items-center gap-2 rounded-2xl border border-line bg-surface/75 pl-4 pr-2 shadow-card backdrop-blur-xl sm:pl-5">
             <Logo />
             <div className="ml-4 hidden items-center gap-0.5 md:flex">
