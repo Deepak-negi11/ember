@@ -14,8 +14,11 @@
 //   * heartbeats are appended to ~/.ember/queue.jsonl before any network I/O,
 //     so nothing is lost when the server is down
 //
+//   * token usage is read from the agent's local transcript and only model names and
+//     token counts are sent (see "Token usage" below)
+//
 // Environment overrides: EMBER_HOME (default ~/.ember), EMBER_API_URL, EMBER_API_KEY,
-// EMBER_SEND_BRANCH=0 (don't send branch names).
+// EMBER_SEND_BRANCH=0 (don't send branch names), EMBER_SEND_USAGE=0 (don't send token counts).
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -76,14 +79,16 @@ function readJson(file, fallback) {
 
 /**
  * Resolve API URL + key: env overrides win over ~/.ember/config.json.
- * `send_branch: false` (or EMBER_SEND_BRANCH=0) keeps branch names on this machine.
+ * `send_branch: false` (or EMBER_SEND_BRANCH=0) keeps branch names on this machine;
+ * `send_usage: false` (or EMBER_SEND_USAGE=0) keeps token counts on it.
  */
 export function loadConfig(home, env = process.env) {
   const cfg = readJson(paths(home).config, {}) || {};
   const apiUrl = String(env.EMBER_API_URL || cfg.api_url || DEFAULT_API_URL).replace(/\/+$/, '');
   const apiKey = env.EMBER_API_KEY || cfg.api_key || '';
   const sendBranch = env.EMBER_SEND_BRANCH !== undefined ? env.EMBER_SEND_BRANCH !== '0' : cfg.send_branch !== false;
-  return { apiUrl, apiKey, sendBranch };
+  const sendUsage = env.EMBER_SEND_USAGE !== undefined ? env.EMBER_SEND_USAGE !== '0' : cfg.send_usage !== false;
+  return { apiUrl, apiKey, sendBranch, sendUsage };
 }
 
 function writeAtomic(file, data) {
@@ -575,6 +580,173 @@ export function buildHeartbeat(
 }
 
 // ---------------------------------------------------------------------------
+// Token usage from the agent's own transcript (numbers only)
+// ---------------------------------------------------------------------------
+//
+// Claude Code and Codex pass `transcript_path`, a local JSONL log of the session.
+// The hook reads only what was appended since its last run and keeps four token
+// counts per model. Prompt text, tool output and code in the transcript are
+// parsed in memory and never stored or sent; the record that leaves the machine
+// is { id, time, agent, model, input, output, cache_read, cache_write }.
+
+/** Events that close a turn or a session: the transcript is complete up to here. */
+const USAGE_EVENTS = new Set(['SessionStart', 'UserPromptSubmit', 'Stop', 'SubagentStop', 'SessionEnd']);
+const USAGE_READ_MAX_BYTES = 4 * 1024 * 1024; // per run; a long backlog is read over several runs
+const USAGE_STATE_TTL_S = 30 * 86400;
+const USAGE_FIELDS = ['input', 'output', 'cache_read', 'cache_write'];
+const MODEL_RE = /^[a-z0-9][a-z0-9._:-]{0,63}$/;
+
+const count = (v) => (Number.isSafeInteger(v) && v > 0 ? v : 0);
+const zero = () => ({ input: 0, output: 0, cache_read: 0, cache_write: 0 });
+
+/** Model ids are sent as-is, so anything that doesn't look like one is dropped. */
+export function cleanModel(model) {
+  const m = typeof model === 'string' ? model.trim().toLowerCase() : '';
+  return MODEL_RE.test(m) && m !== '<synthetic>' ? m : undefined;
+}
+
+/**
+ * Add up the token usage in a run of transcript lines. `prev` carries what the
+ * last run left off with, so nothing is counted twice across runs:
+ *   Claude Code writes one line per content block, all repeating the message's
+ *   usage, so lines are de-duplicated by message id (`last` spans two runs).
+ *   Codex writes running session totals, so only the growth since `totals` counts.
+ * Returns per-model counts and the state to carry into the next run.
+ */
+export function tallyUsage(lines, prev = {}) {
+  const byModel = new Map();
+  const add = (model, c) => {
+    const m = cleanModel(model);
+    if (!m) return;
+    const t = byModel.get(m) ?? zero();
+    for (const f of USAGE_FIELDS) t[f] += c[f];
+    byModel.set(m, t);
+  };
+  let last = prev.last;
+  let totals = prev.totals;
+  let model = prev.model;
+  const seen = new Map(); // message id -> counts already added in this run
+
+  for (const line of lines) {
+    let d;
+    try {
+      d = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!d || typeof d !== 'object') continue;
+
+    // Claude Code: { type: 'assistant', message: { id, model, usage } }
+    const msg = d.message;
+    if (d.type === 'assistant' && msg && typeof msg === 'object' && msg.usage && typeof msg.usage === 'object') {
+      const u = msg.usage;
+      const c = {
+        input: count(u.input_tokens),
+        output: count(u.output_tokens),
+        cache_read: count(u.cache_read_input_tokens),
+        cache_write: count(u.cache_creation_input_tokens),
+      };
+      const id = typeof msg.id === 'string' ? msg.id : typeof d.requestId === 'string' ? d.requestId : '';
+      // What this message already contributed, here or in the previous run.
+      const before = (id && seen.get(id)) || (id && last?.id === id ? last.counts : undefined);
+      const delta = zero();
+      const after = zero();
+      for (const f of USAGE_FIELDS) {
+        after[f] = Math.max(c[f], before?.[f] ?? 0);
+        delta[f] = after[f] - (before?.[f] ?? 0);
+      }
+      if (id) seen.set(id, after);
+      last = id ? { id, counts: after } : undefined;
+      add(msg.model, delta);
+      continue;
+    }
+
+    // Codex: turn_context carries the model; token_count carries running totals.
+    const p = d.payload;
+    if (!p || typeof p !== 'object') continue;
+    if (d.type === 'turn_context') {
+      model = cleanModel(p.model) ?? model;
+      continue;
+    }
+    const t = d.type === 'event_msg' && p.type === 'token_count' ? p.info?.total_token_usage : undefined;
+    if (!t || typeof t !== 'object') continue;
+    const cached = count(t.cached_input_tokens);
+    const now = {
+      // OpenAI counts cached tokens inside input_tokens; keep the two apart like Claude does.
+      input: Math.max(0, count(t.input_tokens) - cached),
+      output: count(t.output_tokens),
+      cache_read: cached,
+      cache_write: count(t.cache_write_input_tokens),
+    };
+    const delta = zero();
+    for (const f of USAGE_FIELDS) delta[f] = Math.max(0, now[f] - (totals?.[f] ?? 0));
+    totals = now;
+    add(model, delta);
+  }
+
+  const usage = [...byModel.entries()]
+    .filter(([, c]) => USAGE_FIELDS.some((f) => c[f] > 0))
+    .map(([m, c]) => ({ model: m, ...c }));
+  return { usage, carry: { last, totals, model } };
+}
+
+/**
+ * Read complete lines appended to `file` since `offset`, up to `maxBytes`.
+ * A file that shrank was replaced, so it is read from the start again.
+ */
+export function readNewLines(file, offset = 0, maxBytes = USAGE_READ_MAX_BYTES) {
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    const size = fs.fstatSync(fd).size;
+    const restarted = size < offset;
+    const start = restarted ? 0 : offset;
+    const length = Math.min(size - start, maxBytes);
+    if (length <= 0) return { lines: [], offset: start, restarted };
+    const buf = Buffer.alloc(length);
+    fs.readSync(fd, buf, 0, length, start);
+    const end = buf.lastIndexOf(0x0a);
+    if (end === -1) {
+      // One line longer than the whole budget: skip it rather than stall here forever.
+      return { lines: [], offset: length === maxBytes ? start + length : start, restarted };
+    }
+    const lines = buf.subarray(0, end).toString('utf8').split('\n').filter((l) => l.trim());
+    return { lines, offset: start + end + 1, restarted };
+  } catch {
+    return null; // missing or unreadable transcript
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+/**
+ * New usage records for this hook event, and the updated per-transcript cursor in
+ * `state.usage` (mutated). Each record's id is an HMAC of the transcript path and
+ * read position, so a retried send is recognised by the server and the path stays private.
+ */
+export function collectUsage(state, payload, { agent, now, entityKey, maxBytes } = {}) {
+  const file = typeof payload.transcript_path === 'string' ? payload.transcript_path.trim() : '';
+  if (!file || !path.isAbsolute(file)) return [];
+  const key = entityHash(entityKey, `transcript:${file}`);
+  const cursors = state.usage && typeof state.usage === 'object' ? state.usage : {};
+  // Forget transcripts that have been quiet for a month, so the state file stays small.
+  for (const [k, v] of Object.entries(cursors)) if (!v || now - v.at > USAGE_STATE_TTL_S) delete cursors[k];
+  const cur = cursors[key] ?? { offset: 0 };
+  const read = readNewLines(file, cur.offset, maxBytes);
+  state.usage = cursors;
+  if (!read) return [];
+  const { usage, carry } = tallyUsage(read.lines, read.restarted ? {} : cur);
+  cursors[key] = { offset: read.offset, at: Math.floor(now), ...carry };
+  return usage.map((u) => ({
+    kind: 'usage',
+    id: entityHash(entityKey, `usage:${file}:${cur.offset}:${u.model}`),
+    time: Math.floor(now),
+    agent,
+    ...u,
+  }));
+}
+
+// ---------------------------------------------------------------------------
 // State (throttle + backoff) in hook-state.json
 // ---------------------------------------------------------------------------
 
@@ -699,7 +871,23 @@ export function queueLength(home) {
   return readLines(p.queue).length + readLines(p.inflight).length;
 }
 
-export async function postHeartbeats(apiUrl, apiKey, heartbeats, timeoutMs = FETCH_TIMEOUT_MS) {
+/**
+ * Queue lines are heartbeats, or token-usage records marked `kind: 'usage'`.
+ * Both go in one request: { heartbeats: [...], usage: [...] } (usage only when present).
+ */
+export function requestBody(items) {
+  const heartbeats = [];
+  const usage = [];
+  for (const item of items) {
+    if (item && item.kind === 'usage') {
+      const { kind, ...rest } = item;
+      usage.push(rest);
+    } else heartbeats.push(item);
+  }
+  return usage.length ? { heartbeats, usage } : { heartbeats };
+}
+
+export async function postHeartbeats(apiUrl, apiKey, items, timeoutMs = FETCH_TIMEOUT_MS) {
   try {
     const res = await fetch(`${apiUrl}/api/v1/heartbeats`, {
       method: 'POST',
@@ -708,7 +896,7 @@ export async function postHeartbeats(apiUrl, apiKey, heartbeats, timeoutMs = FET
         'Content-Type': 'application/json',
         'User-Agent': `ember-agent-hook/${VERSION}`,
       },
-      body: JSON.stringify({ heartbeats }),
+      body: JSON.stringify(requestBody(items)),
       signal: AbortSignal.timeout(timeoutMs),
     });
     const body = await res.text().catch(() => '');
@@ -873,12 +1061,18 @@ export async function runHook({ argv = [], env = process.env, stdinText = '' } =
     }
     const payload = parsePayload(stdinText);
     const event = typeof payload.hook_event_name === 'string' ? payload.hook_event_name : '';
-    const { apiUrl, apiKey, sendBranch } = loadConfig(home, env);
+    const { apiUrl, apiKey, sendBranch, sendUsage } = loadConfig(home, env);
     let hb = buildHeartbeat(payload, { agent, env, sendBranch });
 
     // Every event records when this agent last acted in this project, so a shell
     // command is only credited with files changed since the agent's previous step.
     const state = readState(home);
+
+    // A finished turn: queue the tokens it used (counts only), sent with the next flush.
+    if (sendUsage && USAGE_EVENTS.has(event)) {
+      const records = collectUsage(state, payload, { agent, now: hb.time, entityKey: loadEntityKey(home) });
+      for (const r of records) appendToQueue(home, r);
+    }
     const key = `${hb.editor}|${hb.project}`;
     const previous = state.seen?.[key];
     state.seen = { ...(state.seen || {}), [key]: hb.time };

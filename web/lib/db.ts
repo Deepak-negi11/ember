@@ -151,6 +151,39 @@ CREATE TABLE IF NOT EXISTS daily_breakdown (
 -- Leaderboard language filters read one kind over a date window across all users;
 -- without this they scan the whole table on every page view.
 CREATE INDEX IF NOT EXISTS daily_breakdown_kind_date ON daily_breakdown(kind, date);
+
+-- Raw token usage from AI agents (model + four counts, never content). The hook
+-- gives each record an opaque id, so retried sends are ignored.
+CREATE TABLE IF NOT EXISTS ai_usage (
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  id          TEXT NOT NULL,
+  time        INTEGER NOT NULL,
+  local_date  TEXT NOT NULL,
+  agent       TEXT NOT NULL,
+  model       TEXT NOT NULL,
+  input       INTEGER NOT NULL,
+  output      INTEGER NOT NULL,
+  cache_read  INTEGER NOT NULL,
+  cache_write INTEGER NOT NULL,
+  PRIMARY KEY (user_id, id)
+);
+CREATE INDEX IF NOT EXISTS ai_usage_user_day ON ai_usage(user_id, local_date);
+
+-- Rollup of ai_usage per day, agent and model, with the estimated cost at list
+-- prices (lib/usage.ts). Rebuilt from ai_usage by recomputeAiDay.
+CREATE TABLE IF NOT EXISTS daily_ai_usage (
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  date        TEXT NOT NULL,
+  agent       TEXT NOT NULL,
+  model       TEXT NOT NULL,
+  input       INTEGER NOT NULL,
+  output      INTEGER NOT NULL,
+  cache_read  INTEGER NOT NULL,
+  cache_write INTEGER NOT NULL,
+  cost_micros INTEGER NOT NULL,
+  PRIMARY KEY (user_id, date, agent, model)
+);
+CREATE INDEX IF NOT EXISTS daily_ai_usage_date ON daily_ai_usage(date);
 `;
 
 async function columns(c: Client | Transaction, table: string): Promise<string[]> {

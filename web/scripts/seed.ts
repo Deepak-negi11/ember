@@ -1,9 +1,11 @@
 // Demo data for local development: `npm run seed`.
 // Creates fictional users with a year of generated heartbeats. Demo accounts
 // have no linked X or Google identity, so nobody can sign in as them.
+import { createHash } from "node:crypto";
 import { closeDb, get, run } from "../lib/db.ts";
-import { ingest } from "../lib/stats.ts";
+import { ingest, ingestUsage } from "../lib/stats.ts";
 import { parseHeartbeat, type ParsedHeartbeat } from "../lib/heartbeat.ts";
+import { parseUsage, type ParsedUsage } from "../lib/usage.ts";
 
 type Persona = {
   username: string; name: string; tz: string; location: string; bio: string; quote: string; github?: string;
@@ -56,35 +58,51 @@ const PERSONAS: Persona[] = [
 
 const EDITORS = ["vscode", "cursor"];
 const AGENTS = ["claude-code", "codex"];
+const MODELS: Record<string, string[]> = {
+  "claude-code": ["claude-opus-5-5", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"],
+  codex: ["gpt-6-sol", "gpt-5.3-codex", "gpt-6-luna"],
+};
 
 let seed = 42;
 const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
 const pick = <T,>(a: T[]) => a[Math.floor(rand() * a.length)];
 
-function beatsForDay(p: Persona, dayStart: number, now: number): ParsedHeartbeat[] {
+function beatsForDay(p: Persona, dayStart: number, now: number): { beats: ParsedHeartbeat[]; usage: ParsedUsage[] } {
   const out: ParsedHeartbeat[] = [];
+  const usage: ParsedUsage[] = [];
   const dow = new Date(dayStart * 1000).getUTCDay();
   const weekend = dow === 0 || dow === 6;
-  if (rand() > (weekend ? 0.45 : 0.85) * Math.min(1, p.intensity)) return out;
+  if (rand() > (weekend ? 0.45 : 0.85) * Math.min(1, p.intensity)) return { beats: out, usage };
 
   const sessions = 1 + Math.floor(rand() * 3 * p.intensity);
   const editor = pick(EDITORS);
   for (let s = 0; s < sessions; s++) {
     const proj = pick(p.projects);
     const ai = rand() < p.aiShare;
+    const agent = pick(AGENTS);
     let t = dayStart + (8 + rand() * 14) * 3600;
     const length = (15 + rand() * 120 * p.intensity) * 60;
     const stop = t + length;
     while (t < stop && t < now) {
       const hb = parseHeartbeat({
-        time: t, project: proj.name, language: pick(proj.langs), editor: ai ? pick(AGENTS) : editor,
+        time: t, project: proj.name, language: pick(proj.langs), editor: ai ? agent : editor,
         category: ai ? "ai" : "coding", stack: proj.stack, branch: "main", is_write: true,
       }, now);
       if (hb) out.push(hb);
+      // An agent turn ends every few minutes; each reports the tokens it used.
+      if (ai && rand() < 0.35) {
+        const scale = 0.4 + rand() * 1.6;
+        const u = parseUsage({
+          id: createHash("sha1").update(`${p.username}:${t}`).digest("hex"), time: t, agent, model: pick(MODELS[agent]),
+          input: Math.round(1_500 * scale), output: Math.round(4_000 * scale),
+          cache_read: Math.round(180_000 * scale), cache_write: Math.round(22_000 * scale),
+        }, now);
+        if (u) usage.push(u);
+      }
       t += 60 + rand() * 240;
     }
   }
-  return out;
+  return { beats: out, usage };
 }
 
 const now = Math.floor(Date.now() / 1000);
@@ -101,10 +119,11 @@ for (const p of PERSONAS) {
   for (let d = 360; d >= 0; d--) {
     const dayStart = Math.floor((now - d * 86400) / 86400) * 86400;
     const day = beatsForDay(p, dayStart, now);
-    if (day.length) {
-      await ingest(uid, p.tz, day);
-      beats += day.length;
+    if (day.beats.length) {
+      await ingest(uid, p.tz, day.beats);
+      beats += day.beats.length;
     }
+    if (day.usage.length) await ingestUsage(uid, p.tz, day.usage);
   }
 }
 console.log(`Seeded ${users} demo users and ${beats.toLocaleString()} heartbeats.`);

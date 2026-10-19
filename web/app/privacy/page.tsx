@@ -7,7 +7,7 @@ const CONTACT = "https://github.com/Deepak-negi11/ember/issues";
 
 export default function Privacy() {
   return (
-    <LegalPage title="Privacy policy" updated="16 October 2026">
+    <LegalPage title="Privacy policy" updated="20 October 2026">
       <section>
         <p>
           Ember is a coding-time tracker. It turns activity from your editor and AI coding agents into a heatmap, statistics and a leaderboard. This page explains exactly what Ember collects and what it does with it. In short: <strong>Ember records when and in which project you code, never what you write.</strong>
@@ -19,7 +19,7 @@ export default function Privacy() {
         <ul>
           <li>Your source code or the contents of any file.</li>
           <li>Full file paths. A one-way hash of the path is used only to avoid counting the same activity twice.</li>
-          <li>Prompts you send to AI agents, or their replies.</li>
+          <li>Prompts you send to AI agents, or their replies. To count tokens, the Claude Code and Codex hooks read the agent&apos;s session log on your computer; only the numbers listed below leave it.</li>
           <li>Keystrokes, screenshots or clipboard contents.</li>
           <li>Your GitHub, Google or X password. Sign-in happens on their sites.</li>
         </ul>
@@ -38,6 +38,9 @@ export default function Privacy() {
             <strong>Activity heartbeats</strong> sent by the Ember extension and the Claude Code / Codex hooks: a timestamp, the project name (the name of the folder or repository), the programming language, the git branch, which editor or agent was used, whether a file was saved, and the project&apos;s tech stack as detected from files such as <code>package.json</code>.
           </li>
           <li>
+            <strong>AI token usage</strong> sent by the Claude Code and Codex hooks at the end of each agent turn: the model name (for example <code>claude-opus-5-5</code>), four token counts (input, output, cache reads, cache writes), the agent, a timestamp and a random-looking ID used to ignore repeated sends. Ember turns these into an estimated cost at public API prices. Turn it off with <code>&quot;send_usage&quot;: false</code> in <code>~/.ember/config.json</code>.
+          </li>
+          <li>
             <strong>Sign-in and security data:</strong> a session cookie that keeps you signed in, and your API key. Both are stored only as one-way hashes. Your theme choice (light or dark) is saved in your own browser.
           </li>
         </ul>
@@ -53,7 +56,7 @@ export default function Privacy() {
       <section>
         <h2>What is public</h2>
         <p>
-          Your profile page at <code>/u/your-username</code> and the leaderboard are visible to anyone. They show your name, photo, username, bio, quote, the handles and website you added, your heatmap, total time, languages and tech stack. Project names are shown too, unless you turn on <strong>Hide project names</strong> in Settings. Your email address and API key are never shown.
+          Your profile page at <code>/u/your-username</code> and the leaderboard are visible to anyone. They show your name, photo, username, bio, quote, the handles and website you added, your heatmap, total time, languages, tech stack, and your AI token counts, models and estimated spend. Project names are shown too, unless you turn on <strong>Hide project names</strong> in Settings. Your email address and API key are never shown.
         </p>
       </section>
 

@@ -7,7 +7,7 @@ import { GitHubMark, XMark } from "./BrandIcons.tsx";
 
 /** Ranked rows shared by the leaderboard page and the dashboard. */
 /** ▲/▼ versus the previous period, "New" for first-timers. */
-function Movement({ now, before }: { now: number; before?: number }) {
+export function Movement({ now, before }: { now: number; before?: number }) {
   if (before === undefined) return <span className="text-[10px] font-semibold uppercase tracking-wider text-accent-text">New</span>;
   const d = before - now;
   if (d === 0) return <span className="text-xs text-faint" aria-label="No change">–</span>;
@@ -36,7 +36,6 @@ export function LeaderRows({
     <ol className="overflow-hidden rounded-2xl border border-line bg-surface">
       {rows.map((r, i) => {
         const mine = meId === r.user_id;
-        const aiShare = r.seconds ? Math.round((r.ai_seconds / r.seconds) * 100) : 0;
         // Detected frameworks and tools; languages stand in when no manifest was found.
         const tags = r.stack.length ? r.stack : r.languages.map((l) => l.name);
         return (
@@ -73,7 +72,8 @@ export function LeaderRows({
                     </span>
                   </span>
                   <span className="block truncate text-sm text-muted">
-                    @{r.username} · {language ? (r.top_language === language ? "Main language" : "Also uses it") : `${aiShare}% with AI`}
+                    @{r.username}
+                    {language && ` · ${r.top_language === language ? "Main language" : "Also uses it"}`}
                   </span>
                 </span>
               </span>

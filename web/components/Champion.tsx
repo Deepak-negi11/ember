@@ -1,17 +1,28 @@
 import Link from "next/link";
 import { ArrowUpRight, Crown, XLogo } from "@phosphor-icons/react/ssr";
 import type { LeaderRow } from "@/lib/stats.ts";
-import { formatDuration } from "@/lib/time.ts";
 import { Avatar } from "./ui.tsx";
 import { GitHubMark } from "./BrandIcons.tsx";
 
 const RAMP = ["var(--h4)", "var(--h3)", "var(--h2)", "var(--h1)"];
 
-/** The #1 spot: their one-line quote with their name, their X account, and every language they used. */
-export function Champion({ row, period }: { row: LeaderRow; period: string }) {
+type Person = Pick<LeaderRow, "username" | "display_name" | "avatar_url" | "quote" | "bio" | "twitter" | "github" | "location">;
+
+/**
+ * The #1 spot: their one-line quote with their name, their X account, and what
+ * they won with (languages on the coding board, models on the AI board).
+ */
+export function Champion({ row, period, stat, chips, chipsTitle }: {
+  row: Person;
+  period: string;
+  /** The winning number, e.g. "5h 12m" or "48.2M tokens". */
+  stat: string;
+  chips: { name: string; value: string }[];
+  chipsTitle: string;
+}) {
   const quote = row.quote || row.bio;
-  const langs = row.languages.slice(0, 8);
-  const more = row.languages.length - langs.length;
+  const langs = chips.slice(0, 8);
+  const more = chips.length - langs.length;
 
   return (
     <section
@@ -21,8 +32,9 @@ export function Champion({ row, period }: { row: LeaderRow; period: string }) {
       <div className="grid lg:grid-cols-[1.35fr_1fr]">
         {/* Quote + who said it */}
         <figure className="flex flex-col justify-between gap-10 p-7 sm:p-10">
-          <div className="flex items-center gap-2 text-sm font-semibold text-accent-text">
-            <Crown size={18} weight="fill" /> #1 {period}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-semibold text-accent-text">
+            <span className="flex items-center gap-2"><Crown size={18} weight="fill" /> #1 {period}</span>
+            <span className="num rounded-lg bg-accent-soft px-2 py-0.5 text-xs">{stat}</span>
           </div>
 
           {quote ? (
@@ -72,13 +84,13 @@ export function Champion({ row, period }: { row: LeaderRow; period: string }) {
         {/* Languages */}
         {langs.length > 0 && (
           <div className="flex flex-col justify-center border-t border-line p-7 sm:p-10 lg:border-l lg:border-t-0">
-            <p className="text-sm font-semibold">Languages {period}</p>
+            <p className="text-sm font-semibold">{chipsTitle}</p>
             <ul className="mt-3 flex flex-wrap gap-2">
               {langs.map((l, i) => (
                 <li key={l.name} className="flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-1.5 text-sm">
                   <span className="size-2 rounded-full" style={{ background: RAMP[i] ?? "var(--line-strong)" }} />
                   <span className="font-medium">{l.name}</span>
-                  <span className="num text-xs text-muted">{formatDuration(l.seconds)}</span>
+                  <span className="num text-xs text-muted">{l.value}</span>
                 </li>
               ))}
               {more > 0 && <li className="rounded-xl px-2 py-1.5 text-sm text-muted">+{more} more</li>}

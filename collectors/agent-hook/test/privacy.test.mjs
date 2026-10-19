@@ -17,6 +17,7 @@ const HOOK = process.env.EMBER_HOOK_UNDER_TEST
   ? path.resolve(process.env.EMBER_HOOK_UNDER_TEST)
   : fileURLToPath(new URL('../ember-hook.mjs', import.meta.url));
 const DOCUMENTED_FIELDS = ['branch', 'category', 'editor', 'entity', 'is_write', 'language', 'project', 'stack', 'time'];
+const DOCUMENTED_USAGE_FIELDS = ['agent', 'cache_read', 'cache_write', 'id', 'input', 'model', 'output', 'time'];
 
 function runHook(env, payload) {
   return new Promise((resolve) => {
@@ -41,27 +42,55 @@ test('a full agent session sends only documented fields and no prompt, code, out
     files: { 'package.json': JSON.stringify({ dependencies: { next: '16', react: '19' } }) },
   });
   const written = path.join(repo, 'src', 'MARK_FILENAME.ts');
-  const markers = ['MARK_PROMPT', 'MARK_CODE', 'MARK_OUTPUT', 'MARK_FILENAME', 'MARK_CMD', 'MARK_READ', repo, home];
+  // The session transcript the agent keeps on disk: the hook reads token counts from it.
+  const transcript = path.join(home, '.claude', 'projects', 'MARK_TRANSCRIPT_DIR', 's1.jsonl');
+  fs.mkdirSync(path.dirname(transcript), { recursive: true });
+  const line = (o) => fs.appendFileSync(transcript, `${JSON.stringify(o)}\n`);
+  line({ type: 'user', cwd: repo, message: { role: 'user', content: 'fix MARK_PROMPT in billing' } });
+  const markers = ['MARK_PROMPT', 'MARK_CODE', 'MARK_OUTPUT', 'MARK_FILENAME', 'MARK_CMD', 'MARK_READ', 'MARK_TRANSCRIPT_DIR', 'MARK_MSG_ID', repo, home];
+  const base = { cwd: repo, session_id: 's1', transcript_path: transcript };
   const session = [
-    { hook_event_name: 'SessionStart', cwd: repo, session_id: 's1' },
-    { hook_event_name: 'UserPromptSubmit', cwd: repo, prompt: 'fix MARK_PROMPT in billing' },
-    { hook_event_name: 'PostToolUse', cwd: repo, tool_name: 'Read', tool_input: { file_path: path.join(repo, 'MARK_READ.ts') }, tool_response: 'MARK_OUTPUT' },
-    { hook_event_name: 'PostToolUse', cwd: repo, tool_name: 'Bash', tool_input: { command: 'echo MARK_CMD > notes.txt' }, tool_response: 'MARK_OUTPUT' },
-    { hook_event_name: 'PostToolUse', cwd: repo, tool_name: 'Write', tool_input: { file_path: written, content: 'const k = "MARK_CODE";' }, tool_response: 'MARK_OUTPUT' },
-    { hook_event_name: 'Stop', cwd: repo },
+    { ...base, hook_event_name: 'SessionStart' },
+    { ...base, hook_event_name: 'UserPromptSubmit', prompt: 'fix MARK_PROMPT in billing' },
+    { ...base, hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: { file_path: path.join(repo, 'MARK_READ.ts') }, tool_response: 'MARK_OUTPUT' },
+    { ...base, hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'echo MARK_CMD > notes.txt' }, tool_response: 'MARK_OUTPUT' },
+    { ...base, hook_event_name: 'PostToolUse', tool_name: 'Write', tool_input: { file_path: written, content: 'const k = "MARK_CODE";' }, tool_response: 'MARK_OUTPUT' },
+    { ...base, hook_event_name: 'Stop' },
   ];
 
   for (const event of session) {
+    if (event.hook_event_name === 'Stop') {
+      line({
+        type: 'assistant', cwd: repo, requestId: 'req_MARK_MSG_ID',
+        message: {
+          id: 'msg_MARK_MSG_ID', model: 'claude-opus-5-5', role: 'assistant',
+          content: [{ type: 'tool_use', name: 'Write', input: { file_path: written, content: 'MARK_CODE' } }, { type: 'text', text: 'MARK_OUTPUT' }],
+          usage: { input_tokens: 12, output_tokens: 340, cache_read_input_tokens: 5000, cache_creation_input_tokens: 800 },
+        },
+      });
+    }
     const r = await runHook(env, event);
     assert.equal(r.code, 0, `${event.hook_event_name} exits 0`);
     assert.equal(r.stdout, '', `${event.hook_event_name} prints nothing`);
   }
 
-  assert.deepEqual(server.requests.map((r) => `${r.method} ${r.url}`), ['POST /api/v1/heartbeats'], 'one request, to the heartbeat endpoint only');
+  assert.ok(server.requests.length >= 1);
+  assert.ok(server.requests.every((r) => `${r.method} ${r.url}` === 'POST /api/v1/heartbeats'), 'every request goes to the heartbeat endpoint');
   const sent = server.requests.map((r) => r.raw).join('\n');
   for (const m of markers) assert.ok(!sent.includes(m), `must not send ${m}`);
+  for (const r of server.requests) assert.deepEqual(Object.keys(r.body).filter((k) => k !== 'heartbeats' && k !== 'usage'), []);
 
-  const beats = server.requests[0].body.heartbeats;
+  // Token usage: only the model and four counts (plus an opaque id and the time).
+  const usage = server.requests.flatMap((r) => r.body.usage ?? []);
+  assert.equal(usage.length, 1);
+  assert.deepEqual(Object.keys(usage[0]).sort(), DOCUMENTED_USAGE_FIELDS);
+  assert.deepEqual(
+    { ...usage[0], id: undefined, time: undefined },
+    { id: undefined, time: undefined, agent: 'claude-code', model: 'claude-opus-5-5', input: 12, output: 340, cache_read: 5000, cache_write: 800 },
+  );
+  assert.match(usage[0].id, /^[a-f0-9]{40}$/);
+
+  const beats = server.requests.flatMap((r) => r.body.heartbeats);
   assert.equal(beats.length, 1, 'only the file write produces a heartbeat');
   const [hb] = beats;
   assert.deepEqual(Object.keys(hb).sort(), DOCUMENTED_FIELDS);

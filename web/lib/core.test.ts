@@ -9,7 +9,8 @@ const { computeDurations, streaks, localDate, heatLevel, formatDuration } = awai
 const { parseHeartbeat } = await import("./heartbeat.ts");
 const { closeDb, get, run } = await import("./db.ts");
 after(closeDb);
-const { ingest, summary, leaderboard, leaderboard24h, breakdown, forgetTimeZones } = await import("./stats.ts");
+const { ingest, ingestUsage, summary, leaderboard, aiLeaderboard, aiSummary, breakdown, forgetTimeZones } = await import("./stats.ts");
+const { parseUsage, costMicros, priceFor, formatTokens, formatCost, modelName } = await import("./usage.ts");
 
 const beat = (time: number, over: Partial<{ project: string; language: string; editor: string; category: "coding" | "ai" }> = {}) => ({
   time, project: "ember", language: "TypeScript", editor: "vscode", category: "coding" as const, ...over,
@@ -131,10 +132,13 @@ test("leaderboards cap AI time per day and offer a hands-on view", async () => {
   const goHandsOn = await leaderboard(7, 100, { mode: "hands-on", language: "Go" });
   assert.deepEqual(goHandsOn.map((r) => [r.username, r.seconds]), [["dev", 2 * 3600], ["ana", 0]].filter(([, s]) => s));
 
-  // The rolling 24h board applies the same rules from raw heartbeats.
-  const day = await leaderboard24h(100, { mode: "hands-on" });
-  assert.equal(day.find((r) => r.username === "dev")!.seconds, 2 * 3600);
-  assert.equal((await leaderboard24h(100)).find((r) => r.username === "bot")!.seconds, 4 * 3600);
+  // The "Today" board is one calendar day with the same rules (the beats above
+  // end 10 minutes ago, so they may straddle midnight: compare against the day's rollup).
+  const today = localDate(Math.floor(Date.now() / 1000), "UTC");
+  const devId = dev.user_id;
+  const devToday = await get<{ seconds: number; ai_seconds: number }>("SELECT seconds, ai_seconds FROM daily_stats WHERE user_id = ? AND date = ?", devId, today);
+  const day = await leaderboard(1, 100, { mode: "hands-on" });
+  assert.equal(day.find((r) => r.username === "dev")?.seconds ?? 0, devToday ? devToday.seconds - devToday.ai_seconds : 0);
 });
 
 test("weekly boards use each user's own local days", async () => {
@@ -151,4 +155,77 @@ test("weekly boards use each user's own local days", async () => {
   await run("INSERT INTO daily_stats (user_id, date, seconds, ai_seconds) VALUES (?, ?, 600, 0), (?, ?, 900, 0)", uid, day(7), uid, day(6));
   const row = (await leaderboard(7, 100, { ranksOnly: true })).find((r) => r.username === "kol")!;
   assert.equal(row.seconds, 900, "day 7 back is outside; day 6 back is inside");
+
+  // "Today" is the owner's own calendar day: it starts at their midnight, and yesterday drops off.
+  await run("INSERT INTO daily_stats (user_id, date, seconds, ai_seconds) VALUES (?, ?, 300, 0), (?, ?, 1200, 0)", uid, day(0), uid, day(1));
+  assert.equal((await leaderboard(1, 100, { ranksOnly: true })).find((r) => r.username === "kol")!.seconds, 300);
+  assert.equal((await leaderboard(1, 100, { ranksOnly: true, offsetDays: 1 })).find((r) => r.username === "kol")!.seconds, 1200);
+});
+
+test("parseUsage accepts only numbers and a model id", () => {
+  const now = 1_800_000_000;
+  const ok = { id: "a".repeat(40), time: now, agent: "claude-code", model: "Claude-Opus-5-5", input: 10, output: 20, cache_read: 30, cache_write: 0 };
+  assert.deepEqual(parseUsage(ok, now), { ...ok, model: "claude-opus-5-5" });
+  assert.equal(parseUsage({ ...ok, id: "short" }, now), null);
+  assert.equal(parseUsage({ ...ok, model: "/Users/me/secret" }, now), null);
+  assert.equal(parseUsage({ ...ok, output: -1 }, now), null);
+  assert.equal(parseUsage({ ...ok, output: 1.5 }, now), null);
+  assert.equal(parseUsage({ ...ok, input: 0, output: 0, cache_read: 0 }, now), null, "all zero");
+  assert.equal(parseUsage({ ...ok, cache_read: 500_000_000 }, now), null, "absurd counts");
+  assert.equal(parseUsage({ ...ok, time: now + 3600 }, now), null);
+});
+
+test("estimated cost uses the longest matching price and micro-dollars", () => {
+  // Opus 5.5: $4 in, $20 out, $0.20 cache read, $5 cache write per MTok.
+  assert.equal(costMicros("claude-opus-5-5", { input: 1_000_000, output: 1_000_000, cache_read: 1_000_000, cache_write: 1_000_000 }), 29_200_000);
+  assert.equal(priceFor("claude-opus-4-5-20251101")!.input, 5, "date suffixes match");
+  assert.equal(priceFor("claude-opus-4-20250514")!.input, 15, "Opus 4 is not Opus 4.5");
+  assert.equal(priceFor("gpt-5.4-mini")!.input, 0.75, "longest key wins over gpt-5.4");
+  assert.equal(priceFor("gpt-5.1-codex-max")!.input, 1.25);
+  assert.equal(priceFor("gpt-5.5-pro")!.output, 180);
+  assert.equal(priceFor("mystery-model"), undefined);
+  assert.equal(costMicros("mystery-model", { input: 5, output: 5, cache_read: 0, cache_write: 0 }), 0);
+  assert.deepEqual([formatTokens(950), formatTokens(12_400), formatTokens(3_450_000), formatTokens(1_200_000_000)], ["950", "12.4K", "3.5M", "1.2B"]);
+  assert.deepEqual([formatCost(0), formatCost(4_000), formatCost(12_400_000), formatCost(1_234_000_000)], ["$0", "<$0.01", "$12.40", "$1,234"]);
+  assert.deepEqual([modelName("claude-opus-5-5"), modelName("claude-opus-4-20250514"), modelName("gpt-5.3-codex"), modelName("x-1")], ["Opus 5.5", "Opus 4", "GPT-5.3 Codex", "x-1"]);
+});
+
+test("token usage is idempotent, dated in the user's zone, and ranks the AI board", async () => {
+  const now = Math.floor(Date.now() / 1000);
+  const mk = (username: string) => run("INSERT INTO users (username, display_name, timezone, created_at) VALUES (?, ?, 'UTC', 0)", username, username);
+  await mk("heavy");
+  await mk("pricey");
+  forgetTimeZones();
+  const id = async (u: string) => (await get<{ id: number }>("SELECT id FROM users WHERE username = ?", u))!.id;
+  const rec = (n: number, model: string, counts: { input?: number; output?: number; cache_read?: number; cache_write?: number }) =>
+    parseUsage({ id: n.toString(16).padStart(40, "0"), time: now - 60, agent: model.startsWith("gpt") ? "codex" : "claude-code", model, input: 0, output: 0, cache_read: 0, cache_write: 0, ...counts }, now)!;
+
+  // heavy: lots of cheap tokens. pricey: fewer tokens on an expensive model.
+  const heavy = [rec(1, "claude-haiku-5-5", { cache_read: 9_000_000, output: 100_000 }), rec(2, "gpt-6-luna", { input: 500_000, output: 50_000 })];
+  assert.deepEqual(await ingestUsage(await id("heavy"), "UTC", heavy), { accepted: 2, duplicates: 0 });
+  assert.deepEqual(await ingestUsage(await id("heavy"), "UTC", heavy), { accepted: 0, duplicates: 2 }, "a retried send is ignored");
+  await ingestUsage(await id("pricey"), "UTC", [rec(3, "claude-fable-5-1", { input: 200_000, output: 300_000 })]);
+
+  const byTokens = (await aiLeaderboard(1, 100)).map((r) => r.username);
+  assert.ok(byTokens.indexOf("heavy") < byTokens.indexOf("pricey"));
+  const byCost = (await aiLeaderboard(1, 100, { sort: "cost" })).map((r) => r.username);
+  assert.ok(byCost.indexOf("pricey") < byCost.indexOf("heavy"));
+
+  const row = (await aiLeaderboard(7, 100)).find((r) => r.username === "heavy")!;
+  assert.equal(row.tokens, 9_650_000);
+  assert.deepEqual(row.models.map((m) => m.name), ["claude-haiku-5-5", "gpt-6-luna"]);
+  assert.deepEqual(row.agents, ["claude-code", "codex"]);
+  // Haiku 5.5: 9M cache reads x $0.01 + 100K out x $0.50; Luna: 500K in x $0.10 + 50K out x $0.50.
+  assert.equal(row.cost_micros, 90_000 + 50_000 + 50_000 + 25_000);
+
+  // Agent time alone (Cursor's agent sends no tokens) still counts on the board.
+  assert.ok((await aiLeaderboard(7, 100, { sort: "time" })).some((r) => r.username === "bot"));
+
+  const today = localDate(now - 60, "UTC");
+  const s = await aiSummary(await id("heavy"), "UTC", today, today);
+  assert.equal(s.range.tokens, 9_650_000);
+  assert.equal(s.today.cost_micros, 215_000);
+  assert.equal(s.allTime.tokens, 9_650_000);
+  assert.deepEqual(s.range.agents.map((a) => a.name), ["claude-code", "codex"]);
+  assert.ok(s.range.models.every((m) => m.priced));
 });

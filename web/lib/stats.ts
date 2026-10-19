@@ -1,6 +1,7 @@
 import { all, get, tx, type Param, type Q } from "./db.ts";
 import { addDays, computeDurations, isValidTimeZone, localDate, streaks, type Beat } from "./time.ts";
 import type { ParsedHeartbeat } from "./heartbeat.ts";
+import { costMicros, priceFor, type ParsedUsage } from "./usage.ts";
 
 const nowSec = () => Math.floor(Date.now() / 1000);
 
@@ -89,6 +90,44 @@ export async function recomputeDay(q: Q, userId: number, date: string, tz: strin
   if (hours.length) {
     await q.run(`INSERT INTO daily_hours (user_id, date, hour, seconds) VALUES ${new Array(hours.length / 4).fill("(?, ?, ?, ?)").join(", ")}`, ...hours);
   }
+}
+
+/**
+ * Store token-usage records and rebuild the AI rollups of every day they touched.
+ * Records are dated in the user's time zone, like heartbeats. Retries are ignored.
+ */
+export async function ingestUsage(userId: number, tz: string, records: ParsedUsage[]) {
+  if (records.length === 0) return { accepted: 0, duplicates: 0 };
+  return tx(async (q) => {
+    const params: Param[] = [];
+    for (const r of records) {
+      params.push(userId, r.id, r.time, localDate(r.time, tz), r.agent, r.model, r.input, r.output, r.cache_read, r.cache_write);
+    }
+    const inserted = await q.all<{ local_date: string }>(
+      `INSERT OR IGNORE INTO ai_usage (user_id, id, time, local_date, agent, model, input, output, cache_read, cache_write)
+       VALUES ${records.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").join(", ")} RETURNING local_date`,
+      ...params,
+    );
+    for (const d of new Set(inserted.map((r) => r.local_date))) await recomputeAiDay(q, userId, d);
+    return { accepted: inserted.length, duplicates: records.length - inserted.length };
+  });
+}
+
+export async function recomputeAiDay(q: Q, userId: number, date: string) {
+  const rows = await q.all<{ agent: string; model: string; input: number; output: number; cache_read: number; cache_write: number }>(
+    `SELECT agent, model, SUM(input) AS input, SUM(output) AS output, SUM(cache_read) AS cache_read, SUM(cache_write) AS cache_write
+       FROM ai_usage WHERE user_id = ? AND local_date = ? GROUP BY agent, model`,
+    userId, date,
+  );
+  await q.run("DELETE FROM daily_ai_usage WHERE user_id = ? AND date = ?", userId, date);
+  if (!rows.length) return;
+  const params: Param[] = [];
+  for (const r of rows) params.push(userId, date, r.agent, r.model, r.input, r.output, r.cache_read, r.cache_write, costMicros(r.model, r));
+  await q.run(
+    `INSERT INTO daily_ai_usage (user_id, date, agent, model, input, output, cache_read, cache_write, cost_micros)
+     VALUES ${rows.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?)").join(", ")}`,
+    ...params,
+  );
 }
 
 // ---- Read path ----------------------------------------------------------------
@@ -225,6 +264,12 @@ export const AI_DAILY_CAP_SEC = 4 * 3600;
 /** "all": hands-on time plus capped AI time. "hands-on": AI-agent time excluded. */
 export type BoardMode = "all" | "hands-on";
 
+/**
+ * What the "Coding time" board ranks by default: time people coded themselves.
+ * Agent work has its own "AI usage" board, so counting it here too would score it twice.
+ */
+export const CODING_MODE: BoardMode = "hands-on";
+
 export interface BoardOptions {
   /** Shift the window back this many days (e.g. `days` for the previous period). */
   offsetDays?: number;
@@ -335,8 +380,8 @@ export async function leaderboard(days: number, limit = 100, opts: BoardOptions 
   return rows.map((r, i) => ({ ...r, rank: i + 1, daily_avg: Math.round(r.seconds / days), languages: langs.get(r.user_id) ?? [], stack: stacks.get(r.user_id) ?? [] }));
 }
 
-export async function rankOf(userId: number, days = 7): Promise<{ rank: number; of: number } | null> {
-  const board = await leaderboard(days, 10_000, { ranksOnly: true });
+export async function rankOf(userId: number, days = 7, mode: BoardMode = CODING_MODE): Promise<{ rank: number; of: number } | null> {
+  const board = await leaderboard(days, 10_000, { ranksOnly: true, mode });
   const idx = board.findIndex((r) => r.user_id === userId);
   return idx === -1 ? null : { rank: idx + 1, of: board.length };
 }
@@ -410,66 +455,159 @@ export async function insights(userId: number, tz: string): Promise<Insights> {
   };
 }
 
-// ---- Rolling 24-hour leaderboard ---------------------------------------------------
+// ---- AI usage ----------------------------------------------------------------------
 
-const board24Cache = new Map<string, { at: number; rows: LeaderRow[] }>();
+export type AiSort = "tokens" | "cost" | "time";
+
+export interface AiLeaderRow {
+  rank: number;
+  user_id: number;
+  username: string;
+  display_name: string;
+  avatar_url: string;
+  quote: string;
+  bio: string;
+  twitter: string;
+  github: string;
+  location: string;
+  /** Input + output + cache reads + cache writes. */
+  tokens: number;
+  output: number;
+  cost_micros: number;
+  /** Time AI agents spent writing files (uncapped: this board is about agents). */
+  ai_seconds: number;
+  /** Models by tokens, most first. */
+  models: { name: string; tokens: number; cost_micros: number }[];
+  /** Agents that reported usage or time, most tokens first. */
+  agents: string[];
+}
+
+const AI_ORDER: Record<AiSort, string> = {
+  tokens: "tokens DESC, cost_micros DESC",
+  cost: "cost_micros DESC, tokens DESC",
+  time: "ai_seconds DESC, tokens DESC",
+};
 
 /**
- * Ranks the last 24 hours (not a calendar day) straight from heartbeats, using
- * the same merged-timeline rule as the daily rollups. `offsetHours` shifts the
- * window back, e.g. 24 for the previous day's ranks. Cached for a minute.
+ * Ranks everyone by AI-agent usage over their own last `days` local calendar
+ * days (the same windows as the coding board, so both reset at each person's
+ * midnight). Agent time with no token data (Cursor's agent, older hooks) still
+ * puts someone on the board.
  */
-export async function leaderboard24h(
+export async function aiLeaderboard(
+  days: number,
   limit = 100,
-  opts: { offsetHours?: number; language?: string; mode?: BoardMode } = {},
-): Promise<LeaderRow[]> {
-  const mode = opts.mode ?? "all";
-  const key = `${opts.offsetHours ?? 0}|${opts.language ?? ""}|${mode}`;
-  const cached = board24Cache.get(key);
-  const now = nowSec();
-  if (cached && now - cached.at < 60) return cached.rows.slice(0, limit);
-
-  const end = now - (opts.offsetHours ?? 0) * 3600;
-  const beats = await all<Beat & { user_id: number }>(
-    "SELECT user_id, time, project, language, editor, category FROM heartbeats WHERE time >= ? AND time < ? AND is_write = 1 ORDER BY user_id, time",
-    end - 86400, end,
+  opts: { offsetDays?: number; sort?: AiSort; ranksOnly?: boolean } = {},
+): Promise<AiLeaderRow[]> {
+  const sort = opts.sort ?? "tokens";
+  const win = await localWindows(days, opts.offsetDays ?? 0);
+  if (win.empty) return [];
+  const from = `JOIN users u ON u.id = t.user_id JOIN win w ON w.tz = u.timezone`;
+  const inWindow = `t.date BETWEEN w.d_from AND w.d_to`;
+  const rows = await all<Omit<AiLeaderRow, "rank" | "models" | "agents">>(
+    `WITH ${win.sql},
+     x AS (
+       SELECT t.user_id, t.input + t.output + t.cache_read + t.cache_write AS tokens, t.output, t.cost_micros, 0 AS ai_seconds
+         FROM daily_ai_usage t ${from} WHERE ${inWindow}
+       UNION ALL
+       SELECT t.user_id, 0, 0, 0, t.ai_seconds FROM daily_stats t ${from} WHERE ${inWindow} AND t.ai_seconds > 0
+     )
+     SELECT u.id AS user_id, u.username, u.display_name, u.avatar_url, u.quote, u.bio, u.twitter, u.github, u.location,
+            SUM(x.tokens) AS tokens, SUM(x.output) AS output, SUM(x.cost_micros) AS cost_micros, SUM(x.ai_seconds) AS ai_seconds
+       FROM x JOIN users u ON u.id = x.user_id
+      GROUP BY u.id
+      HAVING ${sort === "time" ? "SUM(x.ai_seconds) > 0" : "SUM(x.tokens) > 0 OR SUM(x.ai_seconds) > 0"}
+      ORDER BY ${AI_ORDER[sort]}, u.username ASC
+      LIMIT ?`,
+    ...win.params, limit,
   );
-  const byUser = new Map<number, Beat[]>();
-  for (const b of beats) {
-    const list = byUser.get(b.user_id) ?? [];
-    list.push(b);
-    byUser.set(b.user_id, list);
+  const models = new Map<number, AiLeaderRow["models"]>();
+  const agents = new Map<number, string[]>();
+  if (rows.length && !opts.ranksOnly) {
+    const ids = rows.map((r) => r.user_id);
+    const [modelRows, agentRows] = await Promise.all([
+      all<{ user_id: number; name: string; tokens: number; cost_micros: number }>(
+        `WITH ${win.sql}
+         SELECT t.user_id, t.model AS name, SUM(t.input + t.output + t.cache_read + t.cache_write) AS tokens, SUM(t.cost_micros) AS cost_micros
+           FROM daily_ai_usage t ${from}
+          WHERE ${inWindow} AND t.user_id IN (${ids.map(() => "?").join(",")})
+          GROUP BY t.user_id, t.model ORDER BY t.user_id, tokens DESC`,
+        ...win.params, ...ids,
+      ),
+      // Agents: from usage records, and from agent time for agents that send no token data.
+      all<{ user_id: number; name: string; tokens: number }>(
+        `WITH ${win.sql}
+         SELECT user_id, name, SUM(tokens) AS tokens FROM (
+           SELECT t.user_id, t.agent AS name, t.input + t.output + t.cache_read + t.cache_write AS tokens
+             FROM daily_ai_usage t ${from} WHERE ${inWindow} AND t.user_id IN (${ids.map(() => "?").join(",")})
+           UNION ALL
+           SELECT t.user_id, t.name, 0 FROM daily_breakdown t ${from}
+            WHERE +t.kind = 'editor' AND t.ai_seconds > 0 AND ${inWindow} AND t.user_id IN (${ids.map(() => "?").join(",")})
+         ) GROUP BY user_id, name ORDER BY user_id, tokens DESC`,
+        ...win.params, ...ids, ...ids,
+      ),
+    ]);
+    for (const m of modelRows) models.set(m.user_id, [...(models.get(m.user_id) ?? []), { name: m.name, tokens: m.tokens, cost_micros: m.cost_micros }]);
+    for (const a of agentRows) agents.set(a.user_id, [...(agents.get(a.user_id) ?? []), a.name]);
   }
-  const scored = [...byUser.entries()]
-    .map(([user_id, list]) => {
-      const d = computeDurations(list);
-      // Same rule as scoredSeconds(): hands-on time, plus AI time up to the cap.
-      const score = (total: number, ai: number) => total - ai + (mode === "hands-on" ? 0 : Math.min(ai, AI_DAILY_CAP_SEC));
-      const languages = [...d.language.entries()]
-        .map(([name, sec]) => ({ name, seconds: score(sec, d.aiLanguage.get(name) ?? 0) }))
-        .filter((l) => l.seconds > 0)
-        .sort((a, b) => b.seconds - a.seconds);
-      const seconds = opts.language
-        ? score(d.language.get(opts.language) ?? 0, d.aiLanguage.get(opts.language) ?? 0)
-        : score(d.total, d.ai);
-      const ai = opts.language ? d.aiLanguage.get(opts.language) ?? 0 : d.ai;
-      const ai_seconds = mode === "hands-on" ? 0 : Math.min(ai, AI_DAILY_CAP_SEC);
-      return { user_id, seconds, ai_seconds, languages };
-    })
-    .filter((r) => r.seconds > 0);
+  return rows.map((r, i) => ({ ...r, rank: i + 1, models: models.get(r.user_id) ?? [], agents: agents.get(r.user_id) ?? [] }));
+}
 
-  const users = scored.length
-    ? await all<{ user_id: number; username: string; display_name: string; avatar_url: string; quote: string; bio: string; twitter: string; github: string; location: string }>(
-        `SELECT id AS user_id, username, display_name, avatar_url, quote, bio, twitter, github, location FROM users WHERE id IN (${scored.map(() => "?").join(",")})`,
-        ...scored.map((r) => r.user_id),
-      )
-    : [];
-  const info = new Map(users.map((u) => [u.user_id, u]));
-  const stacks = await stacksFor(scored.map((r) => r.user_id), end - 86400);
-  const rows: LeaderRow[] = scored
-    .filter((r) => info.has(r.user_id))
-    .sort((a, b) => b.seconds - a.seconds || info.get(a.user_id)!.username.localeCompare(info.get(b.user_id)!.username))
-    .map((r, i) => ({ ...info.get(r.user_id)!, ...r, rank: i + 1, daily_avg: r.seconds, top_language: r.languages[0]?.name ?? null, stack: stacks.get(r.user_id) ?? [] }));
-  board24Cache.set(key, { at: now, rows });
-  return rows.slice(0, limit);
+/** Rank each user held on the AI board in the previous window, for ▲/▼ movement. */
+export async function previousAiRanks(days: number, sort: AiSort = "tokens") {
+  const prev = await aiLeaderboard(days, 10_000, { offsetDays: days, sort, ranksOnly: true });
+  return new Map(prev.map((r) => [r.user_id, r.rank]));
+}
+
+export interface AiTotals {
+  tokens: number;
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
+  cost_micros: number;
+}
+
+export interface AiSummary {
+  /** The requested range. */
+  range: AiTotals & {
+    models: (AiTotals & { name: string; priced: boolean })[];
+    agents: { name: string; tokens: number; cost_micros: number }[];
+  };
+  today: AiTotals;
+  /** Everything ever recorded. */
+  allTime: AiTotals;
+  /** First day with token data, or null when there is none. */
+  since: string | null;
+}
+
+const TOTALS = `SUM(input + output + cache_read + cache_write) AS tokens, SUM(input) AS input, SUM(output) AS output,
+  SUM(cache_read) AS cache_read, SUM(cache_write) AS cache_write, SUM(cost_micros) AS cost_micros`;
+const ZERO: AiTotals = { tokens: 0, input: 0, output: 0, cache_read: 0, cache_write: 0, cost_micros: 0 };
+const orZero = (t: Partial<Record<keyof AiTotals, number | null>> | null): AiTotals =>
+  Object.fromEntries(Object.keys(ZERO).map((k) => [k, Number(t?.[k as keyof AiTotals] ?? 0)])) as unknown as AiTotals;
+
+/** One person's AI tokens and estimated spend: `from`..`to` (local dates), today and all time. */
+export async function aiSummary(userId: number, tz: string, from: string, to: string): Promise<AiSummary> {
+  const today = todayFor(tz);
+  const [models, agents, todayRow, allRow] = await Promise.all([
+    all<AiTotals & { name: string }>(
+      `SELECT model AS name, ${TOTALS} FROM daily_ai_usage WHERE user_id = ? AND date BETWEEN ? AND ? GROUP BY model ORDER BY tokens DESC`,
+      userId, from, to,
+    ),
+    all<{ name: string; tokens: number; cost_micros: number }>(
+      `SELECT agent AS name, SUM(input + output + cache_read + cache_write) AS tokens, SUM(cost_micros) AS cost_micros
+         FROM daily_ai_usage WHERE user_id = ? AND date BETWEEN ? AND ? GROUP BY agent ORDER BY tokens DESC`,
+      userId, from, to,
+    ),
+    get<AiTotals>(`SELECT ${TOTALS} FROM daily_ai_usage WHERE user_id = ? AND date = ?`, userId, today),
+    get<AiTotals & { since: string | null }>(`SELECT ${TOTALS}, MIN(date) AS since FROM daily_ai_usage WHERE user_id = ?`, userId),
+  ]);
+  const range = orZero(null);
+  const modelTotals = models.map((m) => {
+    const t = orZero(m);
+    for (const k of Object.keys(ZERO) as (keyof AiTotals)[]) range[k] += t[k];
+    return { ...t, name: m.name, priced: priceFor(m.name) !== undefined };
+  });
+  return { range: { ...range, models: modelTotals, agents }, today: orZero(todayRow), allTime: orZero(allRow), since: allRow?.since ?? null };
 }

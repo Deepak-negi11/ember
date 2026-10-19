@@ -62,5 +62,10 @@ only set up the AI agents.
 - What is sent: timestamp, project name, language, git branch, editor or agent,
   whether a file was saved, and the detected tech stack. A one-way hash of the
   file path is used only to avoid double counting.
+- Token usage (Claude Code and Codex): at the end of each turn the hook reads
+  the agent's own session log on your machine and sends only the model name and
+  four token counts (input, output, cache read, cache write). Prompts, replies,
+  code and paths in that log are never sent. Turn it off with
+  `"send_usage": false` in `~/.ember/config.json` or `EMBER_SEND_USAGE=0`.
 
 Requires Node.js 18 or newer. MIT licensed.

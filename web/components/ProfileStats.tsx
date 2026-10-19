@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { Hand, Robot } from "@phosphor-icons/react/ssr";
 import type { User } from "@/lib/auth.ts";
-import { insights, breakdown, dailySeries, projectList, summary, techStack, todayFor } from "@/lib/stats.ts";
+import { aiSummary, insights, breakdown, dailySeries, projectList, summary, techStack, todayFor } from "@/lib/stats.ts";
 import { addDays, formatDuration } from "@/lib/time.ts";
+import { AiUsage } from "./AiUsage.tsx";
 import { Heatmap } from "./Heatmap.tsx";
 import { CountUp } from "./CountUp.tsx";
-import { Card, Chip, EDITOR_NAMES, ShareBar } from "./ui.tsx";
+import { Card, Chip, ShareBar } from "./ui.tsx";
 
 export const RANGES = { "7d": 7, "30d": 30, "1y": 365 } as const;
 export type RangeKey = keyof typeof RANGES;
@@ -14,19 +14,23 @@ export function parseRange(v: string | string[] | undefined): RangeKey {
   return typeof v === "string" && v in RANGES ? (v as RangeKey) : "30d";
 }
 
+/** "Oct 13" for a YYYY-MM-DD date. */
+function bestDayLabel(date: string) {
+  return new Date(`${date}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
 export async function ProfileStats({ user, range, owner, basePath }: { user: User; range: RangeKey; owner: boolean; basePath: string }) {
   const today = todayFor(user.timezone);
   const from = addDays(today, -(RANGES[range] - 1));
   const s = await summary(user.id, user.timezone);
   const cells = await dailySeries(user.id, addDays(today, -370), today);
   const languages = await breakdown(user.id, "language", from, today, 12);
-  const editors = await breakdown(user.id, "editor", from, today, 8);
   const rangeTotal = languages.reduce((a, l) => a + l.seconds, 0);
-  const rangeAi = cells.filter((c) => c.date >= from).reduce((a, c) => a + c.ai_seconds, 0);
   const showProjects = owner || !user.hide_projects;
   const projects = showProjects ? await projectList(user.id, from, today, 8) : [];
   const stack = await techStack(user.id, Math.floor(Date.now() / 1000) - 90 * 86400);
   const ins = await insights(user.id, user.timezone);
+  const ai = await aiSummary(user.id, user.timezone, from, today);
   const change = ins.lastWeek ? Math.round(((ins.thisWeek - ins.lastWeek) / ins.lastWeek) * 100) : null;
   const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   const hourLabel = (h: number) => (h === 0 ? "12 AM" : h < 12 ? `${h} AM` : h === 12 ? "12 PM" : `${h - 12} PM`);
@@ -95,14 +99,28 @@ export async function ProfileStats({ user, range, owner, basePath }: { user: Use
       </div>
 
       <Card className="rise p-5 sm:p-6" style={{ ["--d" as string]: 2 }}>
-        <div className="mb-5 flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="font-display text-xl font-medium tracking-tight">
-            <span className="num">{formatDuration(s.year)}</span> in the last year
-          </h2>
-          <span className="text-sm text-muted">
-            {s.activeDays} active days
-            {s.best && s.best.seconds > 0 && <> · best day {formatDuration(s.best.seconds)}</>}
-          </span>
+        <div className="mb-5 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+          <div>
+            <h2 className="font-display text-xl font-medium tracking-tight">
+              <span className="num">{formatDuration(s.year)}</span> in the last year
+            </h2>
+            <p className="mt-0.5 text-sm text-muted">Every day you wrote code, darker for longer days.</p>
+          </div>
+          <dl className="flex gap-5 text-sm sm:gap-7">
+            {[
+              { label: "Active days", value: String(s.activeDays) },
+              { label: "Best day", value: s.best && s.best.seconds > 0 ? formatDuration(s.best.seconds) : "–", hint: s.best && s.best.seconds > 0 ? bestDayLabel(s.best.date) : undefined },
+              { label: "Longest streak", value: `${s.streak.longest}d` },
+            ].map((d) => (
+              <div key={d.label} className="min-w-0">
+                <dt className="text-[11px] font-bold uppercase tracking-[0.12em] text-faint">{d.label}</dt>
+                <dd className="num mt-1 whitespace-nowrap font-semibold" title={d.hint}>
+                  {d.value}
+                  {d.hint && <span className="ml-1.5 hidden font-sans text-xs font-normal text-faint sm:inline">{d.hint}</span>}
+                </dd>
+              </div>
+            ))}
+          </dl>
         </div>
         <Heatmap cells={cells} end={today} />
       </Card>
@@ -128,37 +146,13 @@ export async function ProfileStats({ user, range, owner, basePath }: { user: Use
       {rangeTotal === 0 ? (
         <Card className="p-8 text-center text-muted">No tracked time in this range yet.</Card>
       ) : (
-        <div className="grid gap-5 xl:grid-cols-[1.3fr_1fr]">
-          <Card className="p-5 sm:p-6">
-            <h3 className="mb-4 font-medium">Languages</h3>
-            <ShareBar items={languages} total={rangeTotal} />
-          </Card>
-
-          <Card className="p-5 sm:p-6">
-            <h3 className="mb-4 font-medium">Hands-on vs AI agents</h3>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-xl bg-surface-2 p-4">
-                <Hand size={18} className="text-muted" />
-                <div className="num mt-2 whitespace-nowrap text-xl font-semibold">{formatDuration(rangeTotal - rangeAi)}</div>
-                <div className="text-xs text-muted">In the editor</div>
-              </div>
-              <div className="rounded-xl bg-accent-soft p-4">
-                <Robot size={18} className="text-accent" />
-                <div className="num mt-2 whitespace-nowrap text-xl font-semibold">{formatDuration(rangeAi)}</div>
-                <div className="text-xs text-muted">AI agents</div>
-              </div>
-            </div>
-            <ul className="mt-5 grid gap-2 text-sm">
-              {editors.map((e) => (
-                <li key={e.name} className="flex justify-between">
-                  <span>{EDITOR_NAMES[e.name] ?? e.name}</span>
-                  <span className="num text-muted">{formatDuration(e.seconds)}</span>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        </div>
+        <Card className="p-5 sm:p-6">
+          <h3 className="mb-4 font-medium">Languages</h3>
+          <ShareBar items={languages} total={rangeTotal} />
+        </Card>
       )}
+
+      <AiUsage s={ai} rangeLabel={range === "1y" ? "last year" : `last ${RANGES[range]} days`} owner={owner} />
 
       {stack.length > 0 && (
         <Card className="p-5 sm:p-6">

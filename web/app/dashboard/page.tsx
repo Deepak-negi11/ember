@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { ArrowRight, Trophy } from "@phosphor-icons/react/ssr";
 import { apiKeyInfo, currentUser } from "@/lib/auth.ts";
 import { get } from "@/lib/db.ts";
-import { leaderboard, previousRanks } from "@/lib/stats.ts";
+import { CODING_MODE, leaderboard, previousRanks } from "@/lib/stats.ts";
 import { LeaderRows } from "@/components/LeaderRows.tsx";
 import { YourTools } from "@/components/YourTools.tsx";
 import { ProfileStats, parseRange } from "@/components/ProfileStats.tsx";
@@ -24,7 +24,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
   const range = parseRange(sp.range);
   const hasData = !!await get("SELECT 1 AS x FROM heartbeats WHERE user_id = ? LIMIT 1", user.id);
   const key = await apiKeyInfo(user.id);
-  const [board, prev] = await Promise.all([leaderboard(7, 1000), previousRanks(7)]);
+  const [board, prev] = await Promise.all([leaderboard(7, 1000, { mode: CODING_MODE }), previousRanks(7, { mode: CODING_MODE })]);
   const mineIdx = board.findIndex((r) => r.user_id === user.id);
   const rank = mineIdx === -1 ? null : { rank: mineIdx + 1, of: board.length };
   // Top 5, plus your own row if you are further down.
@@ -80,7 +80,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
         <section className="rise mb-10" style={{ ["--d" as string]: 1 }} aria-labelledby="board-title">
           <div className="mb-4 flex items-end justify-between gap-3">
             <div>
-              <h2 id="board-title" className="font-display text-2xl font-medium tracking-tight">Leaderboard this week</h2>
+              <h2 id="board-title" className="font-display text-2xl font-medium tracking-tight">Coding time this week</h2>
               <p className="mt-1 text-sm text-muted">
                 {rank ? <>You are <span className="num font-semibold text-text">#{rank.rank}</span> of {rank.of}.{rank.rank > 1 && <> {formatDuration(board[rank.rank - 2].seconds - board[rank.rank - 1].seconds)} behind #{rank.rank - 1}.</>}</> : "Track some time this week to get on the board."}
               </p>
