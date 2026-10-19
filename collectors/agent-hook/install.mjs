@@ -25,7 +25,7 @@ const KEY_RE = /^ember_[0-9a-f]{40}$/i;
 export const TARGETS = {
   claude: {
     agent: 'claude-code',
-    events: ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop'],
+    events: ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop', 'SubagentStop'],
     file: (env) => path.join(homeDir(env), '.claude', 'settings.json'),
   },
   cursor: {

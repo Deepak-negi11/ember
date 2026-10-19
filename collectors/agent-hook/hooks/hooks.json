@@ -12,6 +12,9 @@
     ],
     "Stop": [
       { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/ember-hook.mjs\" --agent claude-code" }] }
+    ],
+    "SubagentStop": [
+      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/ember-hook.mjs\" --agent claude-code" }] }
     ]
   }
 }

@@ -6,9 +6,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { TARGETS } from '../install.mjs';
 import { tmpDir, isolatedEnv, KEY } from './helpers.mjs';
 
 const INSTALL = fileURLToPath(new URL('../install.mjs', import.meta.url));
+const PLUGIN_HOOKS = fileURLToPath(new URL('../hooks/hooks.json', import.meta.url));
 
 function install(home, ...args) {
   const r = spawnSync(process.execPath, [INSTALL, ...args], { env: isolatedEnv(home), encoding: 'utf8' });
@@ -34,10 +36,10 @@ test('claude: merges into existing settings, idempotent, backs up, uninstalls on
 
   const r1 = install(home, 'claude');
   assert.equal(r1.code, 0, r1.out);
-  assert.match(r1.out, /Added Ember hooks for: SessionStart, UserPromptSubmit, PostToolUse, Stop/);
+  assert.match(r1.out, /Added Ember hooks for: SessionStart, UserPromptSubmit, PostToolUse, Stop, SubagentStop$/m);
   const s1 = readJson(file);
   assert.equal(s1.model, 'opus');
-  assert.equal(emberCount(s1), 4);
+  assert.equal(emberCount(s1), 5);
   assert.equal(s1.hooks.PostToolUse.length, 2, 'user hook kept alongside Ember');
   const cmd = s1.hooks.Stop[0].hooks[0].command;
   assert.ok(cmd.startsWith(`"${process.execPath}" "`), cmd);
@@ -117,4 +119,10 @@ test('cursor: writes ~/.cursor/hooks.json in Cursor format, keeps user hooks, id
 
   assert.equal(install(home, 'cursor', '--uninstall').code, 0);
   assert.deepEqual(readJson(file), { version: 1, hooks: { afterFileEdit: [{ command: './hooks/format.sh' }] } });
+});
+
+test('claude: the plugin and the installer register the same events, SubagentStop included', () => {
+  const plugin = Object.keys(JSON.parse(fs.readFileSync(PLUGIN_HOOKS, 'utf8')).hooks);
+  assert.deepEqual(plugin, TARGETS.claude.events);
+  assert.ok(plugin.includes('SubagentStop'), 'subagent transcripts are only read on SubagentStop');
 });

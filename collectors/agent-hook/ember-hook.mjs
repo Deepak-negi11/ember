@@ -720,30 +720,48 @@ export function readNewLines(file, offset = 0, maxBytes = USAGE_READ_MAX_BYTES) 
 }
 
 /**
- * New usage records for this hook event, and the updated per-transcript cursor in
+ * Transcripts this event can read. Claude Code's SubagentStop also passes
+ * `agent_transcript_path`, the subagent's own log (`<session>/subagents/agent-<id>.jsonl`);
+ * its messages are not in the main transcript, so both are read, each with its own cursor.
+ */
+function transcriptPaths(payload) {
+  const files = [payload.transcript_path, payload.agent_transcript_path]
+    .map((f) => (typeof f === 'string' ? f.trim() : ''))
+    .filter((f) => f && path.isAbsolute(f));
+  return [...new Set(files)];
+}
+
+/**
+ * New usage records for this hook event, and the updated per-transcript cursors in
  * `state.usage` (mutated). Each record's id is an HMAC of the transcript path and
  * read position, so a retried send is recognised by the server and the path stays private.
  */
 export function collectUsage(state, payload, { agent, now, entityKey, maxBytes } = {}) {
-  const file = typeof payload.transcript_path === 'string' ? payload.transcript_path.trim() : '';
-  if (!file || !path.isAbsolute(file)) return [];
-  const key = entityHash(entityKey, `transcript:${file}`);
+  const files = transcriptPaths(payload);
+  if (!files.length) return [];
   const cursors = state.usage && typeof state.usage === 'object' ? state.usage : {};
   // Forget transcripts that have been quiet for a month, so the state file stays small.
   for (const [k, v] of Object.entries(cursors)) if (!v || now - v.at > USAGE_STATE_TTL_S) delete cursors[k];
-  const cur = cursors[key] ?? { offset: 0 };
-  const read = readNewLines(file, cur.offset, maxBytes);
   state.usage = cursors;
-  if (!read) return [];
-  const { usage, carry } = tallyUsage(read.lines, read.restarted ? {} : cur);
-  cursors[key] = { offset: read.offset, at: Math.floor(now), ...carry };
-  return usage.map((u) => ({
-    kind: 'usage',
-    id: entityHash(entityKey, `usage:${file}:${cur.offset}:${u.model}`),
-    time: Math.floor(now),
-    agent,
-    ...u,
-  }));
+  const records = [];
+  for (const file of files) {
+    const key = entityHash(entityKey, `transcript:${file}`);
+    const cur = cursors[key] ?? { offset: 0 };
+    const read = readNewLines(file, cur.offset, maxBytes);
+    if (!read) continue;
+    const { usage, carry } = tallyUsage(read.lines, read.restarted ? {} : cur);
+    cursors[key] = { offset: read.offset, at: Math.floor(now), ...carry };
+    for (const u of usage) {
+      records.push({
+        kind: 'usage',
+        id: entityHash(entityKey, `usage:${file}:${cur.offset}:${u.model}`),
+        time: Math.floor(now),
+        agent,
+        ...u,
+      });
+    }
+  }
+  return records;
 }
 
 // ---------------------------------------------------------------------------

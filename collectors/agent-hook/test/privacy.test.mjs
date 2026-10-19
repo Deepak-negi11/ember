@@ -47,7 +47,34 @@ test('a full agent session sends only documented fields and no prompt, code, out
   fs.mkdirSync(path.dirname(transcript), { recursive: true });
   const line = (o) => fs.appendFileSync(transcript, `${JSON.stringify(o)}\n`);
   line({ type: 'user', cwd: repo, message: { role: 'user', content: 'fix MARK_PROMPT in billing' } });
-  const markers = ['MARK_PROMPT', 'MARK_CODE', 'MARK_OUTPUT', 'MARK_FILENAME', 'MARK_CMD', 'MARK_READ', 'MARK_TRANSCRIPT_DIR', 'MARK_MSG_ID', repo, home];
+  // A Task-tool subagent keeps its own transcript next to the session's; SubagentStop points at it.
+  const subTranscript = path.join(path.dirname(transcript), 's1', 'subagents', 'agent-MARK_AGENT_ID.jsonl');
+  fs.mkdirSync(path.dirname(subTranscript), { recursive: true });
+  const subLine = (o) => fs.appendFileSync(subTranscript, `${JSON.stringify(o)}\n`);
+  const subBase = { isSidechain: true, agentId: 'MARK_AGENT_ID', cwd: repo, gitBranch: 'MARK_BRANCH_SUB', sessionId: 's1' };
+  subLine({ ...subBase, type: 'user', message: { role: 'user', content: 'search MARK_SUB_PROMPT in MARK_READ.ts' } });
+  subLine({
+    ...subBase, type: 'assistant', requestId: 'req_MARK_SUB_MSG',
+    message: {
+      id: 'msg_MARK_SUB_MSG', model: 'claude-haiku-5-5', role: 'assistant',
+      content: [{ type: 'tool_use', name: 'Grep', input: { pattern: 'MARK_SUB_PATTERN', path: path.join(repo, 'MARK_FILENAME.ts') } }],
+      usage: { input_tokens: 900, output_tokens: 60, cache_read_input_tokens: 12000, cache_creation_input_tokens: 0 },
+    },
+  });
+  subLine({ ...subBase, type: 'user', message: { role: 'user', content: [{ type: 'tool_result', content: 'MARK_SUB_OUTPUT MARK_CODE' }] } });
+  subLine({
+    ...subBase, type: 'assistant', requestId: 'req_MARK_SUB_MSG2',
+    message: {
+      id: 'msg_MARK_SUB_MSG2', model: 'claude-haiku-5-5', role: 'assistant',
+      content: [{ type: 'text', text: 'found MARK_SUB_OUTPUT' }],
+      usage: { input_tokens: 100, output_tokens: 40, cache_read_input_tokens: 0, cache_creation_input_tokens: 50 },
+    },
+  });
+  const markers = [
+    'MARK_PROMPT', 'MARK_CODE', 'MARK_OUTPUT', 'MARK_FILENAME', 'MARK_CMD', 'MARK_READ', 'MARK_TRANSCRIPT_DIR', 'MARK_MSG_ID',
+    'MARK_AGENT_ID', 'MARK_AGENT_TYPE', 'MARK_BRANCH_SUB', 'MARK_SUB_PROMPT', 'MARK_SUB_PATTERN', 'MARK_SUB_OUTPUT', 'MARK_SUB_MSG',
+    'MARK_LAST_MESSAGE', 'subagents', repo, home,
+  ];
   const base = { cwd: repo, session_id: 's1', transcript_path: transcript };
   const session = [
     { ...base, hook_event_name: 'SessionStart' },
@@ -55,6 +82,10 @@ test('a full agent session sends only documented fields and no prompt, code, out
     { ...base, hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: { file_path: path.join(repo, 'MARK_READ.ts') }, tool_response: 'MARK_OUTPUT' },
     { ...base, hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'echo MARK_CMD > notes.txt' }, tool_response: 'MARK_OUTPUT' },
     { ...base, hook_event_name: 'PostToolUse', tool_name: 'Write', tool_input: { file_path: written, content: 'const k = "MARK_CODE";' }, tool_response: 'MARK_OUTPUT' },
+    {
+      ...base, hook_event_name: 'SubagentStop', stop_hook_active: false, agent_id: 'MARK_AGENT_ID', agent_type: 'MARK_AGENT_TYPE',
+      agent_transcript_path: subTranscript, last_assistant_message: 'found MARK_LAST_MESSAGE',
+    },
     { ...base, hook_event_name: 'Stop' },
   ];
 
@@ -80,15 +111,21 @@ test('a full agent session sends only documented fields and no prompt, code, out
   for (const m of markers) assert.ok(!sent.includes(m), `must not send ${m}`);
   for (const r of server.requests) assert.deepEqual(Object.keys(r.body).filter((k) => k !== 'heartbeats' && k !== 'usage'), []);
 
-  // Token usage: only the model and four counts (plus an opaque id and the time).
+  // Token usage: only the model and four counts (plus an opaque id and the time),
+  // for the main session and for the subagent's own transcript.
   const usage = server.requests.flatMap((r) => r.body.usage ?? []);
-  assert.equal(usage.length, 1);
-  assert.deepEqual(Object.keys(usage[0]).sort(), DOCUMENTED_USAGE_FIELDS);
+  assert.equal(usage.length, 2);
+  for (const u of usage) {
+    assert.deepEqual(Object.keys(u).sort(), DOCUMENTED_USAGE_FIELDS);
+    assert.match(u.id, /^[a-f0-9]{40}$/);
+  }
   assert.deepEqual(
-    { ...usage[0], id: undefined, time: undefined },
-    { id: undefined, time: undefined, agent: 'claude-code', model: 'claude-opus-5-5', input: 12, output: 340, cache_read: 5000, cache_write: 800 },
+    usage.map(({ id, time, ...u }) => u).sort((a, b) => a.model.localeCompare(b.model)),
+    [
+      { agent: 'claude-code', model: 'claude-haiku-5-5', input: 1000, output: 100, cache_read: 12000, cache_write: 50 },
+      { agent: 'claude-code', model: 'claude-opus-5-5', input: 12, output: 340, cache_read: 5000, cache_write: 800 },
+    ],
   );
-  assert.match(usage[0].id, /^[a-f0-9]{40}$/);
 
   const beats = server.requests.flatMap((r) => r.body.heartbeats);
   assert.equal(beats.length, 1, 'only the file write produces a heartbeat');

@@ -107,6 +107,41 @@ test('collectUsage reads each part of a transcript once and ids are stable per p
   assert.deepEqual(collectUsage({}, { transcript_path: 'relative.jsonl' }, opts), []);
 });
 
+test('collectUsage also reads a subagent transcript, with its own cursor', () => {
+  const dir = tmpDir();
+  const main = path.join(dir, 'session.jsonl');
+  const sub = path.join(dir, 'session', 'subagents', 'agent-a1.jsonl');
+  fs.mkdirSync(path.dirname(sub), { recursive: true });
+  fs.writeFileSync(main, `${claude('m1', 'claude-opus-5-5', { input_tokens: 4, output_tokens: 6 })}\n`);
+  fs.writeFileSync(sub, [
+    claude('s1', 'claude-haiku-5-5', { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 3000 }),
+    claude('s2', 'claude-haiku-5-5', { input_tokens: 50, output_tokens: 5 }),
+  ].join('\n') + '\n');
+  const state = {};
+  const opts = { agent: 'claude-code', now: 1_800_000_000, entityKey: KEY_HEX };
+  const stop = { hook_event_name: 'SubagentStop', transcript_path: main, agent_transcript_path: sub };
+
+  const first = collectUsage(state, stop, opts);
+  assert.deepEqual(first.map(({ id, time, kind, agent, ...u }) => u), [
+    { model: 'claude-opus-5-5', input: 4, output: 6, cache_read: 0, cache_write: 0 },
+    { model: 'claude-haiku-5-5', input: 150, output: 25, cache_read: 3000, cache_write: 0 },
+  ]);
+  assert.equal(new Set(first.map((r) => r.id)).size, 2, 'records from the two files get distinct ids');
+  assert.equal(Object.keys(state.usage).length, 2, 'one cursor per transcript');
+  assert.deepEqual(collectUsage(state, stop, opts), [], 'nothing new in either file');
+
+  // The main turn's Stop afterwards must not count the subagent again, nor the main part twice.
+  fs.appendFileSync(main, `${claude('m2', 'claude-opus-5-5', { output_tokens: 2 })}\n`);
+  const after = collectUsage(state, { hook_event_name: 'Stop', transcript_path: main }, opts);
+  assert.deepEqual(after.map((r) => [r.model, r.output]), [['claude-opus-5-5', 2]]);
+
+  // Same path in both fields is read once; a relative agent path is ignored.
+  fs.appendFileSync(sub, `${claude('s3', 'claude-haiku-5-5', { output_tokens: 7 })}\n`);
+  assert.deepEqual(collectUsage(state, { transcript_path: sub, agent_transcript_path: sub }, opts).map((r) => r.output), [7]);
+  assert.deepEqual(collectUsage({}, { agent_transcript_path: 'subagents/agent-x.jsonl' }, opts), []);
+  assert.ok(!JSON.stringify(state).includes(dir), 'cursors are keyed by hash, not path');
+});
+
 test('requestBody puts usage records next to heartbeats and drops the marker', () => {
   const hb = { time: 1, project: 'p', editor: 'codex', category: 'ai' };
   assert.deepEqual(requestBody([hb]), { heartbeats: [hb] });
@@ -152,4 +187,27 @@ test('send_usage: false keeps token counts on the machine', async (t) => {
   const { server, env, repo, transcript } = await setup(t, { send_usage: false });
   await runHook(env, { hook_event_name: 'Stop', cwd: repo, transcript_path: transcript }, 'codex');
   assert.equal(server.requests.length, 0);
+});
+
+test('a SubagentStop event sends the subagent\'s tokens next to the main session\'s', async (t) => {
+  const { server, env, repo } = await setup(t);
+  const dir = tmpDir();
+  const main = path.join(dir, 's.jsonl');
+  const sub = path.join(dir, 's', 'subagents', 'agent-x.jsonl');
+  fs.mkdirSync(path.dirname(sub), { recursive: true });
+  fs.writeFileSync(main, `${claude('m1', 'claude-opus-5-5', { input_tokens: 1, output_tokens: 2 })}\n`);
+  fs.writeFileSync(sub, `${claude('x1', 'claude-sonnet-5-5', { input_tokens: 30, output_tokens: 40, cache_creation_input_tokens: 9 })}\n`);
+  const event = {
+    hook_event_name: 'SubagentStop', cwd: repo, session_id: 's', agent_id: 'x', agent_type: 'Explore',
+    transcript_path: main, agent_transcript_path: sub, last_assistant_message: 'SECRET_TEXT',
+  };
+  assert.equal(await runHook(env, event), 0);
+  assert.equal(await runHook(env, event), 0);
+  assert.equal(server.requests.length, 1);
+  const usage = server.requests[0].body.usage.map(({ id, time, ...u }) => u);
+  assert.deepEqual(usage, [
+    { agent: 'claude-code', model: 'claude-opus-5-5', input: 1, output: 2, cache_read: 0, cache_write: 0 },
+    { agent: 'claude-code', model: 'claude-sonnet-5-5', input: 30, output: 40, cache_read: 0, cache_write: 9 },
+  ]);
+  for (const s of [sub, main, 'SECRET_TEXT', 'Explore']) assert.ok(!server.requests[0].raw.includes(s), s);
 });
