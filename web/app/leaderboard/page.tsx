@@ -3,7 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowRight } from "@phosphor-icons/react/ssr";
 import { apiKeyInfo, currentUser } from "@/lib/auth.ts";
-import { CODING_MODE, aiLeaderboard, boardLanguages, leaderboard, previousAiRanks, previousRanks } from "@/lib/stats.ts";
+import { AI_DAILY_CAP_SEC, CODING_MODE, aiLeaderboard, boardLanguages, leaderboard, previousAiRanks, previousRanks } from "@/lib/stats.ts";
 import { formatDuration } from "@/lib/time.ts";
 import { formatTokens, modelName } from "@/lib/usage.ts";
 import { AiLeaderRows } from "@/components/AiLeaderRows.tsx";
@@ -22,7 +22,7 @@ const PERIODS = {
 type PeriodKey = keyof typeof PERIODS;
 
 const BOARDS = {
-  coding: { label: "Coding", description: "Time each person spent writing code themselves." },
+  coding: { label: "Coding", description: "Time spent writing code, by hand or with an AI agent." },
   ai: { label: "Agents", description: "Tokens and estimated spend from Claude Code and Codex." },
 } as const;
 type BoardKey = keyof typeof BOARDS;
@@ -116,7 +116,7 @@ export default async function Leaderboard({ searchParams }: Props) {
     const languages = await boardLanguages(period.days, 10);
     // Only accept languages that actually appear on the board.
     const lang = languages.find((l) => l.name === sp.lang)?.name;
-    // Time people wrote code themselves; agent work is ranked on the Agents board.
+    // Time spent writing code, by hand or by an agent (agent time capped per day, see CODING_MODE).
     const [rows, prev] = await Promise.all([
       leaderboard(period.days, 100, { language: lang, mode: CODING_MODE }),
       previousRanks(period.days, { language: lang, mode: CODING_MODE }),
@@ -124,7 +124,7 @@ export default async function Leaderboard({ searchParams }: Props) {
     onBoard = rows.some((r) => r.user_id === me.id);
     header = {
       title: lang ? `Top ${lang} developers` : BOARDS.coding.label,
-      subtitle: `${lang ? `Ranked by time spent writing ${lang} ${period.label}` : `Ranked by time spent writing code ${period.label}`}. ${resetNote} Arrows compare with ${period.prev}.`,
+      subtitle: `${lang ? `Ranked by time spent writing ${lang} ${period.label}` : `Ranked by time spent writing code ${period.label}`}, by hand or with an AI agent (agent time counts up to ${AI_DAILY_CAP_SEC / 3600}h a day). ${resetNote} Arrows compare with ${period.prev}.`,
     };
     body = (
       <>

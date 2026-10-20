@@ -141,6 +141,14 @@ test("leaderboards cap AI time per day and offer a hands-on view", async () => {
   assert.equal(day.find((r) => r.username === "dev")?.seconds ?? 0, devToday ? devToday.seconds - devToday.ai_seconds : 0);
 });
 
+test("the Coding board counts agent-written code, capped, so agent users rank on both boards", async () => {
+  const { CODING_MODE } = await import("./stats.ts");
+  assert.equal(CODING_MODE, "all");
+  // "bot" only ever coded through an agent: it still ranks on Coding, with its time capped at 4h a day.
+  const bot = (await leaderboard(7, 100, { mode: CODING_MODE })).find((r) => r.username === "bot");
+  assert.equal(bot?.seconds, 4 * 3600);
+});
+
 test("weekly boards use each user's own local days", async () => {
   // Activity 8 local days ago is outside the 7-day window for its owner's zone, whatever UTC says.
   await run("INSERT INTO users (username, display_name, timezone, created_at) VALUES ('kol','Kol','Asia/Kolkata',0)");

@@ -265,10 +265,12 @@ export const AI_DAILY_CAP_SEC = 4 * 3600;
 export type BoardMode = "all" | "hands-on";
 
 /**
- * What the "Coding time" board ranks by default: time people coded themselves.
- * Agent work has its own "AI usage" board, so counting it here too would score it twice.
+ * What the Coding board ranks: time spent writing code, by hand or by an AI
+ * agent editing files, with agent time capped at AI_DAILY_CAP_SEC a day so an
+ * agent left running can't top the board. The Agents board ranks the same
+ * people by tokens instead, so everyone who codes with an agent shows on both.
  */
-export const CODING_MODE: BoardMode = "hands-on";
+export const CODING_MODE: BoardMode = "all";
 
 export interface BoardOptions {
   /** Shift the window back this many days (e.g. `days` for the previous period). */
