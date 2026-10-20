@@ -72,22 +72,24 @@ test("ingest is idempotent and feeds summary, leaderboard and hours", async () =
   await run("INSERT INTO users (username, display_name, created_at) VALUES ('ana','Ana',0)");
   const uid = (await get<{ id: number }>("SELECT id FROM users WHERE username='ana'"))!.id;
   const now = Math.floor(Date.now() / 1000);
-  const batch = [0, 60, 120, 180].map((o) => parseHeartbeat({ time: now - 600 + o, project: "ember", language: "Rust", editor: "vscode", category: "coding", is_write: true, stack: ["Rust"] }, now)!);
+  // Yesterday 23:00 UTC: a fixed time of day, so the beats never straddle midnight whenever the test runs.
+  const base = Math.floor(now / 86400) * 86400 - 3600;
+  const batch = [0, 60, 120, 180].map((o) => parseHeartbeat({ time: base + o, project: "ember", language: "Rust", editor: "vscode", category: "coding", is_write: true, stack: ["Rust"] }, now)!);
 
   assert.deepEqual(await ingest(uid, "UTC", batch), { accepted: 4, duplicates: 0 });
   assert.deepEqual(await ingest(uid, "UTC", batch), { accepted: 0, duplicates: 4 });
   // A batch that mixes a retried beat with a new one only counts the new one.
-  const mixed = [batch[3], parseHeartbeat({ time: now - 600 + 240, project: "ember", language: "Rust", editor: "vscode", category: "coding", is_write: true }, now)!];
+  const mixed = [batch[3], parseHeartbeat({ time: base + 240, project: "ember", language: "Rust", editor: "vscode", category: "coding", is_write: true }, now)!];
   assert.deepEqual(await ingest(uid, "UTC", mixed), { accepted: 1, duplicates: 1 });
   // Activity without writing (file switches, an agent session that only reads) is stored but adds no time.
-  const idle = [300, 360, 420].map((o) => parseHeartbeat({ time: now - 600 + o, project: "ember", language: "Rust", editor: "claude-code", category: "ai" }, now)!);
+  const idle = [300, 360, 420].map((o) => parseHeartbeat({ time: base + o, project: "ember", language: "Rust", editor: "claude-code", category: "ai" }, now)!);
   assert.deepEqual(await ingest(uid, "UTC", idle), { accepted: 3, duplicates: 0 });
 
   const s = await summary(uid, "UTC");
   assert.equal(s.week, 240);
   assert.equal(s.streak.current, 1);
-  const today = localDate(now, "UTC");
-  assert.deepEqual(await breakdown(uid, "language", today, today), [{ name: "Rust", seconds: 240 }]);
+  const day = localDate(base, "UTC");
+  assert.deepEqual(await breakdown(uid, "language", day, day), [{ name: "Rust", seconds: 240 }]);
   const lb = await leaderboard(7);
   assert.equal(lb[0].username, "ana");
   assert.equal(lb[0].top_language, "Rust");
@@ -95,14 +97,19 @@ test("ingest is idempotent and feeds summary, leaderboard and hours", async () =
   assert.equal(hours!.s, 240);
 });
 
-/** A user with `beats` heartbeats 60s apart, all ending 10 minutes ago. */
+/**
+ * A user with `beats` heartbeats 60s apart, all ending yesterday at 20:00 UTC.
+ * A fixed time of day keeps up to ~14h of activity inside one calendar day, so
+ * per-day caps give the same result whatever time the tests run (CI at 00:37
+ * UTC used to split a 6h run across two days and two caps).
+ */
 async function userWith(username: string, tz: string, beats: { n: number; category?: "coding" | "ai"; language?: string; editor?: string }[]) {
   await run("INSERT INTO users (username, display_name, timezone, created_at) VALUES (?, ?, ?, 0)", username, username, tz);
   forgetTimeZones(); // raw inserts skip the app's account code, which does this
   const uid = (await get<{ id: number }>("SELECT id FROM users WHERE username = ?", username))!.id;
   const now = Math.floor(Date.now() / 1000);
   const total = beats.reduce((a, b) => a + b.n, 0);
-  let t = now - 600 - total * 60;
+  let t = Math.floor(now / 86400) * 86400 - 4 * 3600 - total * 60;
   const batch = [];
   for (const b of beats) {
     for (let i = 0; i < b.n; i++, t += 60) {
@@ -132,13 +139,10 @@ test("leaderboards cap AI time per day and offer a hands-on view", async () => {
   const goHandsOn = await leaderboard(7, 100, { mode: "hands-on", language: "Go" });
   assert.deepEqual(goHandsOn.map((r) => [r.username, r.seconds]), [["dev", 2 * 3600], ["ana", 0]].filter(([, s]) => s));
 
-  // The "Today" board is one calendar day with the same rules (the beats above
-  // end 10 minutes ago, so they may straddle midnight: compare against the day's rollup).
-  const today = localDate(Math.floor(Date.now() / 1000), "UTC");
-  const devId = dev.user_id;
-  const devToday = await get<{ seconds: number; ai_seconds: number }>("SELECT seconds, ai_seconds FROM daily_stats WHERE user_id = ? AND date = ?", devId, today);
-  const day = await leaderboard(1, 100, { mode: "hands-on" });
-  assert.equal(day.find((r) => r.username === "dev")?.seconds ?? 0, devToday ? devToday.seconds - devToday.ai_seconds : 0);
+  // One calendar day applies the same rules: all of it happened yesterday, and none today.
+  const yesterday = await leaderboard(1, 100, { mode: "hands-on", offsetDays: 1 });
+  assert.equal(yesterday.find((r) => r.username === "dev")!.seconds, 2 * 3600);
+  assert.equal((await leaderboard(1, 100, { mode: "hands-on" })).find((r) => r.username === "dev"), undefined);
 });
 
 test("the Coding board counts agent-written code, capped, so agent users rank on both boards", async () => {
@@ -206,7 +210,7 @@ test("token usage is idempotent, dated in the user's zone, and ranks the AI boar
   forgetTimeZones();
   const id = async (u: string) => (await get<{ id: number }>("SELECT id FROM users WHERE username = ?", u))!.id;
   const rec = (n: number, model: string, counts: { input?: number; output?: number; cache_read?: number; cache_write?: number }) =>
-    parseUsage({ id: n.toString(16).padStart(40, "0"), time: now - 60, agent: model.startsWith("gpt") ? "codex" : "claude-code", model, input: 0, output: 0, cache_read: 0, cache_write: 0, ...counts }, now)!;
+    parseUsage({ id: n.toString(16).padStart(40, "0"), time: now, agent: model.startsWith("gpt") ? "codex" : "claude-code", model, input: 0, output: 0, cache_read: 0, cache_write: 0, ...counts }, now)!;
 
   // heavy: lots of cheap tokens. pricey: fewer tokens on an expensive model.
   const heavy = [rec(1, "claude-haiku-5-5", { cache_read: 9_000_000, output: 100_000 }), rec(2, "gpt-6-luna", { input: 500_000, output: 50_000 })];
@@ -232,7 +236,7 @@ test("token usage is idempotent, dated in the user's zone, and ranks the AI boar
   assert.ok(!(await aiLeaderboard(7, 100)).some((r) => r.username === "bot"));
   assert.ok((await aiLeaderboard(7, 100, { sort: "time" })).some((r) => r.username === "bot"));
 
-  const today = localDate(now - 60, "UTC");
+  const today = localDate(now, "UTC"); // records are dated "now", which is always today
   const s = await aiSummary(await id("heavy"), "UTC", today, today);
   assert.equal(s.range.tokens, 9_650_000);
   assert.equal(s.today.cost_micros, 215_000);

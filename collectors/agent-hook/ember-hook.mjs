@@ -27,7 +27,7 @@ import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-export const VERSION = '0.1.5';
+export const VERSION = '0.1.6';
 export const AGENTS = ['claude-code', 'codex', 'cursor-agent'];
 
 /** Events whose heartbeats are throttled: they fire on every tool call or file edit. */
